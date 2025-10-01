@@ -18,6 +18,17 @@ type SessionRow = {
 
 type ProgramOption = { id: string; name: string };
 
+/** Tipizzazione della riga restituita dalla select con relations */
+type SessionQueryRow = {
+  id: string;
+  user_id: string;
+  program_id: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  profiles?: { email?: string | null } | null;   // alias: profiles:user_id ( email )
+  programs?: { name?: string | null } | null;    // alias: programs:program_id ( name )
+};
+
 export default function SessionsPage() {
   const supabase = createClient();
   const { userId } = useProfile();
@@ -43,7 +54,7 @@ export default function SessionsPage() {
 
     if (error) { setMsg(error.message); return; }
 
-    const mapped = (data ?? []).map((s: any) => ({
+    const mapped: SessionRow[] = ((data ?? []) as SessionQueryRow[]).map((s) => ({
       id: s.id,
       user_id: s.user_id,
       program_id: s.program_id,
@@ -51,7 +62,7 @@ export default function SessionsPage() {
       ended_at: s.ended_at,
       user_email: s.profiles?.email ?? null,
       program_name: s.programs?.name ?? null,
-    })) as SessionRow[];
+    }));
     setRows(mapped);
 
     const { data: ps } = await supabase
