@@ -1,91 +1,66 @@
 'use client';
-
 import React from 'react';
 
-type Props = {
-  url: string;
-  className?: string;
-  title?: string;
-  onError?: () => void;
-};
+type Props = { url: string; className?: string };
 
-/** Riconoscitori molto semplici */
-const isYouTube = (u: string) => /youtu\.?be/.test(u);
-const isVimeo = (u: string) => /vimeo\.com/.test(u);
-const isMp4 = (u: string) => /\.mp4($|\?)/i.test(u);
-
-const toYouTubeEmbed = (u: string) => {
-  // supporta youtu.be/<id> e youtube.com/watch?v=<id>
-  const short = u.match(/youtu\.be\/([^?&]+)/)?.[1];
-  const qs = u.match(/[?&]v=([^?&]+)/)?.[1];
-  const id = short || qs;
-  return id ? `https://www.youtube.com/embed/${id}` : null;
-};
-
-const toVimeoEmbed = (u: string) => {
-  const id = u.match(/vimeo\.com\/(\d+)/)?.[1];
-  return id ? `https://player.vimeo.com/video/${id}` : null;
-};
-
-export default function VideoPlayer({ url, className, title = 'Video', onError }: Props) {
+export default function VideoPlayer({ url, className }: Props) {
   if (!url) return null;
 
-  // YouTube/Vimeo -> iframe
-  if (isYouTube(url)) {
-    const src = toYouTubeEmbed(url);
-    if (!src) return (
-      <div className={className}>
-        <p className="text-sm opacity-80">URL YouTube non riconosciuto. <a href={url} target="_blank" rel="noreferrer" className="underline">Apri in nuova scheda</a></p>
-      </div>
-    );
-    return (
-      <div className={className}>
-        <iframe
-          title={title}
-          src={src}
-          width="100%"
-          height="315"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          className="rounded w-full"
-        />
-      </div>
-    );
+  const isYT = /youtu\.?be/.test(url);
+  const isVimeo = /vimeo\.com/.test(url);
+  const isMp4 = /\.mp4($|\?)/i.test(url);
+
+  // YouTube
+  if (isYT) {
+    const mShort = url.match(/youtu\.be\/([^?&]+)/);
+    const mQuery = url.match(/[?&]v=([^?&]+)/);
+    const id = (mShort && mShort[1]) || (mQuery && mQuery[1]) || '';
+    if (id) {
+      const src = 'https://www.youtube.com/embed/' + id;
+      return (
+        <div className={className}>
+          <iframe
+            title="Video"
+            src={src}
+            width="100%"
+            height={315}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            className="rounded w-full"
+          />
+        </div>
+      );
+    }
   }
 
-  if (isVimeo(url)) {
-    const src = toVimeoEmbed(url);
-    if (!src) return (
-      <div className={className}>
-        <p className="text-sm opacity-80">URL Vimeo non riconosciuto. <a href={url} target="_blank" rel="noreferrer" className="underline">Apri in nuova scheda</a></p>
-      </div>
-    );
-    return (
-      <div className={className}>
-        <iframe
-          title={title}
-          src={src}
-          width="100%"
-          height="315"
-          allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
-          allowFullScreen
-          className="rounded w-full"
-        />
-      </div>
-    );
+  // Vimeo
+  if (isVimeo) {
+    const m = url.match(/vimeo\.com\/(\d+)/);
+    const id = m && m[1] ? m[1] : '';
+    if (id) {
+      const src = 'https://player.vimeo.com/video/' + id;
+      return (
+        <div className={className}>
+          <iframe
+            title="Video"
+            src={src}
+            width="100%"
+            height={315}
+            allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
+            allowFullScreen
+            className="rounded w-full"
+          />
+        </div>
+      );
+    }
   }
 
-  // File locale o remoto .mp4 -> <video>
-  if (isMp4(url)) {
+  // MP4 diretto
+  if (isMp4) {
     return (
       <div className={className}>
-        <video
-          controls
-          className="rounded w-full"
-          onError={onError}
-        >
+        <video controls className="rounded w-full">
           <source src={url} type="video/mp4" />
-          Il tuo browser non supporta il tag video.
         </video>
       </div>
     );
@@ -94,10 +69,9 @@ export default function VideoPlayer({ url, className, title = 'Video', onError }
   // Fallback: link esterno
   return (
     <div className={className}>
-      <p className="text-sm opacity-80">
-        URL non riconosciuto per embed.{' '}
-        <a href={url} target="_blank" rel="noreferrer" className="underline">Apri in nuova scheda</a>
-      </p>
+      <a href={url} target="_blank" rel="noreferrer" className="underline text-sm">
+        Apri video in nuova scheda
+      </a>
     </div>
   );
 }
