@@ -1,84 +1,111 @@
+// app/api/admin/create-user/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE!;
-
-// ATTENZIONE: questa route gira SOLO sul server (edge/node), non esporta mai la service key al client
-const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+// Evita prerender in build e forza runtime server
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
     const {
       email,
       password,
       full_name = '',
-      role = 'member',               // 'member' | 'trainer' | 'owner'
-      profile = {},                  // dati profilo opzionali: gender, birth_date, height_cm, weight_kg
-      anamnesis = null,              // oggetto JSON opzionale per anamnesi
-      emailConfirm = true,           // se true: l'utente è subito confermato (usa la password impostata)
-      sendInvite = false,            // in alternativa, invia mail di invito/reset link
+      role = 'member',          // 'member' | 'trainer' | 'owner'
+      profile = {},             // { gender, birth_date, height_cm, weight_kg } opzionale
+      anamnesis = null,         // oggetto opzionale per anamnesi
+      emailConfirm = true,      // se true: utente confermato subito
+      sendInvite = false,       // se true e !emailConfirm: invia email invito
     } = body || {};
 
     if (!email || !password) {
       return NextResponse.json({ error: 'email e password sono obbligatori' }, { status: 400 });
     }
 
-    // 1) Crea utente auth con ruolo e nome nei metadati (attiva direttamente se emailConfirm)
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    // accettiamo entrambe le varianti per compatibilità
+    const serviceKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+
+    if (!url || !serviceKey) {
+      return NextResponse.json(
+        { error: 'Server non configurato (mancano NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY).' },
+        { status: 500 }
+      );
+    }
+
+    // Istanzia il client **a runtime** (non a import-time)
+    const admin = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // 1) Crea utente auth
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: !!emailConfirm,
       user_metadata: { full_name, role },
     });
-    if (createErr) return NextResponse.json({ error: createErr.message }, { status: 400 });
+    if (createErr) {
+      return NextResponse.json({ error: createErr.message }, { status: 400 });
+    }
 
     const userId = created.user?.id;
-    if (!userId) return NextResponse.json({ error: 'Creazione utente riuscita ma manca userId' }, { status: 500 });
+    if (!userId) {
+      return NextResponse.json({ error: 'Creazione utente riuscita ma manca userId' }, { status: 500 });
+    }
 
-    // 2) Aggiorna profilo (il trigger dovrebbe aver creato la riga; in ogni caso upsert)
-    const { error: profErr } = await admin
-      .from('profiles')
-      .upsert({
-        id: userId,
-        email,
-        full_name: full_name || null,
-        role,   // forza il ruolo desiderato
-        gender: profile.gender ?? null,
-        birth_date: profile.birth_date ?? null,
-        height_cm: profile.height_cm ?? null,
-        weight_kg: profile.weight_kg ?? null,
-      });
-    if (profErr) return NextResponse.json({ error: profErr.message }, { status: 400 });
+    // 2) Upsert profilo (il trigger lo crea comunque; qui forziamo/aggiorniamo)
+    const { error: profErr } = await admin.from('profiles').upsert({
+      id: userId,
+      email,
+      full_name: full_name || null,
+      role, // forza il ruolo desiderato
+      // campi opzionali del profilo
+      gender: (profile as any).gender ?? null,
+      birth_date: (profile as any).birth_date ?? null,
+      height_cm: (profile as any).height_cm ?? null,
+      weight_kg: (profile as any).weight_kg ?? null,
+    });
+    if (profErr) {
+      return NextResponse.json({ error: profErr.message }, { status: 400 });
+    }
 
     // 3) (Opzionale) Anamnesi iniziale
     if (anamnesis && typeof anamnesis === 'object') {
+      const a = anamnesis as Record<string, any>;
       const { error: aErr } = await admin
         .from('anamnesis')
-        .upsert({
-          user_id: userId,
-          data: anamnesis,
-          consent: !!anamnesis.consent,
-          signed_at: anamnesis.consent ? new Date().toISOString() : null,
-        }, { onConflict: 'user_id' });
-      if (aErr) return NextResponse.json({ error: aErr.message }, { status: 400 });
+        .upsert(
+          {
+            user_id: userId,
+            data: a,
+            consent: !!a.consent,
+            signed_at: a.consent ? new Date().toISOString() : null,
+          },
+          { onConflict: 'user_id' }
+        );
+      if (aErr) {
+        return NextResponse.json({ error: aErr.message }, { status: 400 });
+      }
     }
 
-    // 4) (Opzionale) invia link d’invito se richiesto
+    // 4) (Opzionale) invia link d’invito (se non confermi subito l’email)
     if (sendInvite && !emailConfirm) {
-      // genera link di invito (reset password) per far impostare la password
-      const { error: linkErr } = await admin.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || ''}/login`,
-      } as any);
+      const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || ''}/login`;
+      const { error: linkErr } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo } as any);
       if (linkErr) {
-        // non consideriamo blocking error: l'utente è già creato
+        // non rendiamo fallita la creazione: logghiamo e proseguiamo
         console.warn('Invite link error:', linkErr.message);
       }
     }
 
     return NextResponse.json({ ok: true, userId });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Errore server' }, { status: 500 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Errore server';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
