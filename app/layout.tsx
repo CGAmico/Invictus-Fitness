@@ -2,6 +2,7 @@ import './globals.css';
 import Navbar from '@/components/Navbar';
 import ThemeProvider from '@/components/ThemeProvider';
 import OnboardingGuard from '@/components/OnboardingGuard';
+import PWARegister from '@/components/PWARegister';
 
 export const metadata = {
   title: 'Invictus Fitness',
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-dvh bg-black text-white">
         <ThemeProvider>
+          <PWARegister />
           <Navbar />
           {/* OnboardingGuard reindirizza su /account se i dati profilo base non sono completi */}
           <OnboardingGuard>

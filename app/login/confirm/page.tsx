@@ -1,52 +1,59 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabaseClient';
 import { routeForRole } from '@/lib/redirectAfterLogin';
 import { card } from '@/components/ui';
 
+// Evita qualsiasi prerendering
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default function ConfirmPage() {
   const router = useRouter();
   const supabase = createClient();
-  const search = useSearchParams();
   const [msg, setMsg] = useState('Verifica in corso…');
 
   useEffect(() => {
-    const run = async () => {
+    (async () => {
       try {
-        // Supabase restituisce i params in hash o query a seconda del client/email
-        // exchangeCodeForSession gestisce entrambi i casi
-        const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+        // 1) Scambia il code del link email con una sessione (solo client)
+        const href = typeof window !== 'undefined' ? window.location.href : '';
+        const { error } = await supabase.auth.exchangeCodeForSession(href);
         if (error) { setMsg(error.message); return; }
 
-        // prendi ruolo e reindirizza
+        // 2) Ottieni l'utente
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setMsg('Nessun utente in sessione'); return; }
 
-        let role: 'owner' | 'trainer' | 'member' | null = null;
+        // 3) Ruolo dal profilo (default: member)
         const { data: prof } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', user.id)
           .single();
 
-        role = (prof?.role as any) ?? 'member';
+        let role: 'owner' | 'trainer' | 'member' =
+          (prof?.role as any) ?? 'member';
 
-        // Se manca, imposta member
         if (!prof?.role) {
           await supabase.from('profiles').update({ role: 'member' }).eq('id', user.id);
           role = 'member';
         }
 
-        router.replace(routeForRole(role));
+        // 4) Rispetta ?next=... se presente
+        let next: string | null = null;
+        if (typeof window !== 'undefined') {
+          try { next = new URL(window.location.href).searchParams.get('next'); } catch {}
+        }
+
+        router.replace(next || routeForRole(role));
       } catch (e: any) {
         setMsg(e?.message || 'Errore di conferma');
       }
-    };
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    })();
+  }, [router, supabase]);
 
   return (
     <div className="max-w-md mx-auto">
