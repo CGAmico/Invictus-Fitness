@@ -1,18 +1,14 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  eslint: {
-    // Non bloccare il build su errori ESLint (vercel)
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    // Non bloccare il build su errori TypeScript
-    ignoreBuildErrors: true,
-    typescript: { ignoreBuildErrors: true },
-  },
-  experimental: {
-    // se stai usando turbopack già va bene; lasciamo vuoto
-  },
+  // Non bloccare la build per errori ESLint in CI/Vercel
+  eslint: { ignoreDuringBuilds: true },
+
+  // Non bloccare la build per errori TypeScript in CI/Vercel
+  typescript: { ignoreBuildErrors: true },
+
+  // Se non usi feature sperimentali, puoi anche rimuovere del tutto "experimental"
+  experimental: {},
 };
 
 export default nextConfig;
