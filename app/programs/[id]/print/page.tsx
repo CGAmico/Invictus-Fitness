@@ -135,22 +135,21 @@ export default function ProgramPrintPage() {
     return <div className={card}>Carico…</div>;
   }
 
-  // helper: per forza, mostra serie×rip meglio di "—×—"
-  const renderSetsReps = (sets: number | null, reps: number | null) => {
-    if (sets == null && reps == null) return '—';
-    if (sets != null && reps == null) return `${sets}×—`;
-    if (sets == null && reps != null) return `—×${reps}`;
-    return `${sets}×${reps}`;
-  };
-
-  // helper: stringa cardio compatta
+  // helper per cardio
   const cardioStr = (it: ProgramExercise) => {
     const parts: string[] = [];
-    if (it.cardio_minutes != null && it.cardio_minutes !== 0) parts.push(`${it.cardio_minutes} min`);
-    if (it.cardio_distance_km != null && Number(it.cardio_distance_km) !== 0) parts.push(`${it.cardio_distance_km} km`);
+    if (it.cardio_minutes) parts.push(`${it.cardio_minutes} min`);
+    if (it.cardio_distance_km) parts.push(`${it.cardio_distance_km} km`);
     if (it.cardio_intensity) parts.push(it.cardio_intensity);
     return parts.join(' • ') || '—';
   };
+
+  // helper per campi scrivibili
+  const WriteIn = ({ w = '3rem' }: { w?: string }) => (
+    <span className="writein" style={{ minWidth: w }} />
+  );
+  const NumOrBlank = ({ v, w = '3rem' }: { v: number | null | undefined; w?: string }) =>
+    v != null ? <>{v}</> : <WriteIn w={w} />;
 
   return (
     <div className="space-y-4 print-page">
@@ -165,7 +164,6 @@ export default function ProgramPrintPage() {
         </div>
       </div>
 
-      {/* Tabella stampabile */}
       <div className="space-y-3">
         {days.map(d => (
           <div key={d.id} className={card + ' avoid-break'}>
@@ -191,26 +189,32 @@ export default function ProgramPrintPage() {
                   <tr key={item.id} className="border-b border-neutral-800 align-top">
                     <td className="py-1 pr-2">{item.exercise_name ?? '—'}</td>
 
-                    {/* Serie × Rip e Kg: per cardio lascio '—' */}
-                    <td className="py-1 pr-2">
-                      {item.is_cardio ? '—' : renderSetsReps(item.target_sets, item.target_reps)}
-                    </td>
-                    <td className="py-1 pr-2">{item.is_cardio ? '—' : (item.target_load ?? '—')}</td>
-
-                    {/* RPE solo se attivo nel programma, e non per cardio */}
-                    {program.use_rpe && (
-                      <td className="py-1 pr-2">
-                        {item.is_cardio ? '—' : (item.rpe_target != null ? item.rpe_target : '—')}
-                      </td>
+                    {item.is_cardio ? (
+                      <>
+                        <td className="py-1 pr-2">—</td>
+                        <td className="py-1 pr-2">—</td>
+                        {program.use_rpe && <td className="py-1 pr-2">—</td>}
+                        <td className="py-1 pr-2">Cardio</td>
+                        <td className="py-1 pr-2">{cardioStr(item)}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-1 pr-2">
+                          {item.target_sets != null ? item.target_sets : <WriteIn w="2rem" />} ×{' '}
+                          {item.target_reps != null ? item.target_reps : <WriteIn w="2rem" />}
+                        </td>
+                        <td className="py-1 pr-2">
+                          <NumOrBlank v={item.target_load} w="3rem" />
+                        </td>
+                        {program.use_rpe && (
+                          <td className="py-1 pr-2">
+                            <NumOrBlank v={item.rpe_target} w="2rem" />
+                          </td>
+                        )}
+                        <td className="py-1 pr-2">{item.method ?? '—'}</td>
+                        <td className="py-1 pr-2">{item.method_details ?? '—'}</td>
+                      </>
                     )}
-
-                    {/* Metodo + Dettagli: per cardio mostro la stringa cardio */}
-                    <td className="py-1 pr-2">
-                      {item.is_cardio ? 'Cardio' : (item.method ?? '—')}
-                    </td>
-                    <td className="py-1 pr-2">
-                      {item.is_cardio ? cardioStr(item) : (item.method_details ?? '—')}
-                    </td>
 
                     <td className="py-1 pr-2">{item.machine_label ?? '—'}</td>
                     <td className="py-1">{item.notes ?? '—'}</td>
@@ -235,6 +239,19 @@ export default function ProgramPrintPage() {
       </div>
 
       {msg && <div className={card + ' border border-red-500 text-red-300'}>{msg}</div>}
+
+      <style jsx>{`
+        .writein {
+          display: inline-block;
+          height: 1.1rem;
+          line-height: 1.1rem;
+          border-bottom: 1px solid rgba(120,120,120,.7);
+          vertical-align: bottom;
+        }
+        @media print {
+          .writein { border-bottom: 1px solid #000; }
+        }
+      `}</style>
     </div>
   );
 }
