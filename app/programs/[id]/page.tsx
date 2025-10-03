@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabaseClient';
 import { useProfile } from '@/lib/useProfile';
 import { card, input, select, btnPrimary, btnGhost } from '@/components/ui';
-import VideoModal from './VideoModal'; 
+import VideoModal from './VideoModal';
 
 type Program = {
   id: string;
@@ -39,11 +39,17 @@ type ProgramExercise = {
   machine_label?: string | null;
   method?: string | null;
   method_details?: string | null;
-  video_url?: string | null; // derivato da exercises
+  video_url?: string | null;
+
+  // Cardio
+  is_cardio: boolean;
+  cardio_minutes: number | null;
+  cardio_distance_km: number | null;
+  cardio_intensity: string | null;
 };
 
 type Exercise = { id: string; name: string };
-type Machine = { id: string; name: string; number: number; location: string | null };
+type Machine  = { id: string; name: string; number: number; location: string | null };
 
 export default function ProgramDetailPage() {
   const supabase = createClient();
@@ -62,19 +68,28 @@ export default function ProgramDetailPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   // form: nuovo giorno
-  const [dayName, setDayName] = useState('');
+  const [dayName, setDayName]   = useState('');
   const [dayIndex, setDayIndex] = useState<number>(1);
 
-  // form: aggiungi esercizio (nome libero)
-  const [selDay, setSelDay] = useState<string>('');
+  // form: aggiungi esercizio (libero o esistente)
+  const [selDay, setSelDay]         = useState<string>('');
   const [exerciseName, setExerciseName] = useState('');
-  const [sets, setSets] = useState<number>(3);
-  const [reps, setReps] = useState<number>(8);
-  const [load, setLoad] = useState<number>(0);
-  const [rpe, setRpe] = useState<number>(7);
-  const [selMachine, setSelMachine] = useState<string>('');
-  const [method, setMethod] = useState<string>('');
-  const [methodDetails, setMethodDetails] = useState('');
+
+  // forza (string per permettere vuoto)
+  const [sets, setSets] = useState<string>(''); // facoltativo
+  const [reps, setReps] = useState<string>(''); // facoltativo
+  const [load, setLoad] = useState<string>(''); // facoltativo
+  const [rpe,  setRpe]  = useState<string>(''); // facoltativo
+
+  const [selMachine, setSelMachine]     = useState<string>('');
+  const [method, setMethod]             = useState<string>('');
+  const [methodDetails, setMethodDetails] = useState<string>('');
+
+  // cardio
+  const [isCardio, setIsCardio]             = useState<boolean>(false);
+  const [cardioMinutes, setCardioMinutes]   = useState<string>('');
+  const [cardioDistanceKm, setCardioDistanceKm] = useState<string>('');
+  const [cardioIntensity, setCardioIntensity]   = useState<string>('');
 
   // video modal
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -133,7 +148,7 @@ export default function ProgramDetailPage() {
     setMachines((mach ?? []) as Machine[]);
 
     // Esercizi del programma (join con exercises.video_url e machines)
-    const dayIds = (d ?? []).map(x => x.id);
+    const dayIds   = (d ?? []).map(x => x.id);
     const idsForIn = dayIds.length ? dayIds : ['00000000-0000-0000-0000-000000000000'];
 
     const { data: pe, error: ee } = await supabase
@@ -141,6 +156,7 @@ export default function ProgramDetailPage() {
       .select(`
         id, program_day_id, exercise_id, order_index, target_sets, target_reps, target_load, rpe_target, notes,
         method, method_details, machine_id,
+        is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name, video_url ),
         machines ( name, number, location )
       `)
@@ -171,6 +187,11 @@ export default function ProgramDetailPage() {
         exercise_name: exName,
         machine_label: machineLabel,
         video_url: ex?.video_url ?? null,
+
+        is_cardio: (row as any).is_cardio ?? false,
+        cardio_minutes: (row as any).cardio_minutes ?? null,
+        cardio_distance_km: (row as any).cardio_distance_km ?? null,
+        cardio_intensity: (row as any).cardio_intensity ?? null,
       } as ProgramExercise;
     });
 
@@ -218,6 +239,9 @@ export default function ProgramDetailPage() {
     return null;
   };
 
+  // helper per numeri facoltativi
+  const toNumOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
+
   const addExercise = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit || !selDay) return;
@@ -229,25 +253,47 @@ export default function ProgramDetailPage() {
     const insertPayload: any = {
       program_day_id: selDay,
       exercise_id,
-      order_index:  (exs.filter(x => x.program_day_id === selDay).length) + 1,
-      target_sets:  sets,
-      target_reps:  reps,
-      target_load:  load,
+      order_index: (exs.filter(x => x.program_day_id === selDay).length) + 1,
       method: method || null,
       method_details: methodDetails || null,
-      rpe_target: program?.use_rpe ? rpe : null,
     };
+
+    if (isCardio) {
+      insertPayload.is_cardio          = true;
+      insertPayload.cardio_minutes     = toNumOrNull(cardioMinutes);
+      insertPayload.cardio_distance_km = toNumOrNull(cardioDistanceKm);
+      insertPayload.cardio_intensity   = cardioIntensity.trim() || null;
+
+      insertPayload.target_sets  = null;
+      insertPayload.target_reps  = null;
+      insertPayload.target_load  = null;
+      insertPayload.rpe_target   = null;
+    } else {
+      insertPayload.is_cardio     = false;
+      insertPayload.target_sets   = toNumOrNull(sets);
+      insertPayload.target_reps   = toNumOrNull(reps);
+      insertPayload.target_load   = toNumOrNull(load);
+      insertPayload.rpe_target    = program?.use_rpe ? toNumOrNull(rpe) : null;
+
+      insertPayload.cardio_minutes     = null;
+      insertPayload.cardio_distance_km = null;
+      insertPayload.cardio_intensity   = null;
+    }
+
     if (selMachine) insertPayload.machine_id = selMachine;
 
-    const { error } = await supabase
-      .from('program_exercises')
-      .insert(insertPayload);
+    const { error } = await supabase.from('program_exercises').insert(insertPayload);
     if (error) setMsg(error.message);
 
     setBusy(false);
+
+    // reset form
     setExerciseName('');
     setSelMachine('');
     setMethod(''); setMethodDetails('');
+    setSets(''); setReps(''); setLoad(''); setRpe('');
+    setIsCardio(false); setCardioMinutes(''); setCardioDistanceKm(''); setCardioIntensity('');
+
     await loadAll();
   };
 
@@ -368,33 +414,105 @@ export default function ProgramDetailPage() {
                   <span className="text-xs opacity-70">Nome esercizio (nuovo o esistente)</span>
                   <input
                     className={input}
-                    placeholder="Es: Panca piana bilanciere"
+                    placeholder="Es: Panca piana / Tapis Roulant"
                     value={exerciseName}
                     onChange={(e)=>setExerciseName(e.target.value)}
                   />
                 </label>
 
-                <label className="md:col-span-1 flex flex-col gap-1">
-                  <span className="text-xs opacity-70">Serie</span>
-                  <input className={input} type="number" min={1} value={sets} onChange={(e)=>setSets(Number(e.target.value))} />
-                </label>
-
-                <label className="md:col-span-1 flex flex-col gap-1">
-                  <span className="text-xs opacity-70">Ripetizioni</span>
-                  <input className={input} type="number" min={1} value={reps} onChange={(e)=>setReps(Number(e.target.value))} />
-                </label>
-
-                <label className="md:col-span-1 flex flex-col gap-1">
-                  <span className="text-xs opacity-70">Kg</span>
-                  <input className={input} type="number" step="0.5" value={load} onChange={(e)=>setLoad(Number(e.target.value))} />
-                </label>
-
-                {/* RPE opzionale su base programma */}
-                {program.use_rpe && (
-                  <label className="md:col-span-1 flex flex-col gap-1">
-                    <span className="text-xs opacity-70">RPE</span>
-                    <input className={input} type="number" step="0.5" value={rpe} onChange={(e)=>setRpe(Number(e.target.value))} />
+                {/* Toggle Cardio */}
+                <div className="md:col-span-2 flex items-end">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={isCardio}
+                      onChange={(e)=>setIsCardio(e.target.checked)}
+                    />
+                    <span className="text-sm">Cardio</span>
                   </label>
+                </div>
+
+                {/* Blocchi dinamici */}
+                {isCardio ? (
+                  <>
+                    <label className="md:col-span-2 flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Durata (min)</span>
+                      <input
+                        className={input}
+                        type="number" min={0}
+                        value={cardioMinutes}
+                        onChange={(e)=>setCardioMinutes(e.target.value)}
+                        placeholder="—"
+                      />
+                    </label>
+                    <label className="md:col-span-2 flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Distanza (km)</span>
+                      <input
+                        className={input}
+                        type="number" min={0} step="0.01"
+                        value={cardioDistanceKm}
+                        onChange={(e)=>setCardioDistanceKm(e.target.value)}
+                        placeholder="—"
+                      />
+                    </label>
+                    <label className="md:col-span-4 flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Intensità / Vel / FC (opz.)</span>
+                      <input
+                        className={input}
+                        placeholder="Es: Vel 7.0 / FC 140-150"
+                        value={cardioIntensity}
+                        onChange={(e)=>setCardioIntensity(e.target.value)}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label className="md:col-span-1 flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Serie</span>
+                      <input
+                        className={input}
+                        type="number" min={0}
+                        value={sets}
+                        onChange={(e)=>setSets(e.target.value)}
+                        placeholder="—"
+                      />
+                    </label>
+
+                    <label className="md:col-span-1 flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Ripetizioni</span>
+                      <input
+                        className={input}
+                        type="number" min={0}
+                        value={reps}
+                        onChange={(e)=>setReps(e.target.value)}
+                        placeholder="—"
+                      />
+                    </label>
+
+                    <label className="md:col-span-1 flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Kg</span>
+                      <input
+                        className={input}
+                        type="number" step="0.5" min={0}
+                        value={load}
+                        onChange={(e)=>setLoad(e.target.value)}
+                        placeholder="—"
+                      />
+                    </label>
+
+                    {program.use_rpe && (
+                      <label className="md:col-span-1 flex flex-col gap-1">
+                        <span className="text-xs opacity-70">RPE</span>
+                        <input
+                          className={input}
+                          type="number" step="0.5" min={1} max={10}
+                          value={rpe}
+                          onChange={(e)=>setRpe(e.target.value)}
+                          placeholder="—"
+                        />
+                      </label>
+                    )}
+                  </>
                 )}
 
                 {/* Metodo */}
@@ -474,14 +592,30 @@ export default function ProgramDetailPage() {
                         </button>
                       )}
                     </div>
-                    <div className="text-xs opacity-70">
-                      {item.target_sets ?? '—'}x{item.target_reps ?? '—'} • {item.target_load ?? 0} kg
-                      {program.use_rpe && (item.rpe_target != null) ? ` • RPE ${item.rpe_target}` : ''}
-                      {item.method ? ` • Metodo: ${item.method}` : ''}
-                      {item.method_details ? ` (${item.method_details})` : ''}
-                      {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
-                    </div>
+
+                    {/* Dettagli: cardio vs forza */}
+                    {item.is_cardio ? (
+                      <div className="text-xs opacity-70">
+                        {item.cardio_minutes != null && item.cardio_minutes !== 0 ? `${item.cardio_minutes} min` : ''}
+                        {item.cardio_distance_km != null && Number(item.cardio_distance_km) !== 0 ? ` • ${item.cardio_distance_km} km` : ''}
+                        {item.cardio_intensity ? ` • ${item.cardio_intensity}` : ''}
+                        {item.method ? ` • Metodo: ${item.method}` : ''}
+                        {item.method_details ? ` (${item.method_details})` : ''}
+                        {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
+                      </div>
+                    ) : (
+                      <div className="text-xs opacity-70">
+                        {item.target_sets != null ? `${item.target_sets}x` : ''}
+                        {item.target_reps != null ? `${item.target_reps}` : (item.target_sets != null ? '—' : '')}
+                        {item.target_load != null ? ` • ${item.target_load} kg` : ''}
+                        {program.use_rpe && (item.rpe_target != null) ? ` • RPE ${item.rpe_target}` : ''}
+                        {item.method ? ` • Metodo: ${item.method}` : ''}
+                        {item.method_details ? ` (${item.method_details})` : ''}
+                        {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
+                      </div>
+                    )}
                   </div>
+
                   {canEdit && (
                     <button className={btnGhost} onClick={()=>deleteItem(item.id)}>Elimina</button>
                   )}

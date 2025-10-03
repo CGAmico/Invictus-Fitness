@@ -34,6 +34,12 @@ type ProgramExercise = {
   machine_label?: string | null;
   method?: string | null;
   method_details?: string | null;
+
+  // cardio
+  is_cardio: boolean;
+  cardio_minutes: number | null;
+  cardio_distance_km: number | null;
+  cardio_intensity: string | null;
 };
 
 export default function ProgramPrintPage() {
@@ -72,7 +78,7 @@ export default function ProgramPrintPage() {
       .from('program_exercises')
       .select(`
         id, program_day_id, exercise_id, order_index, target_sets, target_reps, target_load, rpe_target, notes,
-        method, method_details,
+        method, method_details, is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name ),
         machines ( name, number, location )
       `)
@@ -100,6 +106,11 @@ export default function ProgramPrintPage() {
         method_details: (row as any).method_details ?? null,
         exercise_name: exName,
         machine_label: machineLabel,
+
+        is_cardio: (row as any).is_cardio ?? false,
+        cardio_minutes: (row as any).cardio_minutes ?? null,
+        cardio_distance_km: (row as any).cardio_distance_km ?? null,
+        cardio_intensity: (row as any).cardio_intensity ?? null,
       } as ProgramExercise;
     });
 
@@ -123,6 +134,23 @@ export default function ProgramPrintPage() {
   if (!program) {
     return <div className={card}>Carico…</div>;
   }
+
+  // helper: per forza, mostra serie×rip meglio di "—×—"
+  const renderSetsReps = (sets: number | null, reps: number | null) => {
+    if (sets == null && reps == null) return '—';
+    if (sets != null && reps == null) return `${sets}×—`;
+    if (sets == null && reps != null) return `—×${reps}`;
+    return `${sets}×${reps}`;
+  };
+
+  // helper: stringa cardio compatta
+  const cardioStr = (it: ProgramExercise) => {
+    const parts: string[] = [];
+    if (it.cardio_minutes != null && it.cardio_minutes !== 0) parts.push(`${it.cardio_minutes} min`);
+    if (it.cardio_distance_km != null && Number(it.cardio_distance_km) !== 0) parts.push(`${it.cardio_distance_km} km`);
+    if (it.cardio_intensity) parts.push(it.cardio_intensity);
+    return parts.join(' • ') || '—';
+  };
 
   return (
     <div className="space-y-4 print-page">
@@ -162,13 +190,28 @@ export default function ProgramPrintPage() {
                 {(exByDay[d.id] ?? []).map(item => (
                   <tr key={item.id} className="border-b border-neutral-800 align-top">
                     <td className="py-1 pr-2">{item.exercise_name ?? '—'}</td>
-                    <td className="py-1 pr-2">{(item.target_sets ?? '—')}×{(item.target_reps ?? '—')}</td>
-                    <td className="py-1 pr-2">{item.target_load ?? '—'}</td>
+
+                    {/* Serie × Rip e Kg: per cardio lascio '—' */}
+                    <td className="py-1 pr-2">
+                      {item.is_cardio ? '—' : renderSetsReps(item.target_sets, item.target_reps)}
+                    </td>
+                    <td className="py-1 pr-2">{item.is_cardio ? '—' : (item.target_load ?? '—')}</td>
+
+                    {/* RPE solo se attivo nel programma, e non per cardio */}
                     {program.use_rpe && (
-                      <td className="py-1 pr-2">{item.rpe_target != null ? item.rpe_target : '—'}</td>
+                      <td className="py-1 pr-2">
+                        {item.is_cardio ? '—' : (item.rpe_target != null ? item.rpe_target : '—')}
+                      </td>
                     )}
-                    <td className="py-1 pr-2">{item.method ?? '—'}</td>
-                    <td className="py-1 pr-2">{item.method_details ?? '—'}</td>
+
+                    {/* Metodo + Dettagli: per cardio mostro la stringa cardio */}
+                    <td className="py-1 pr-2">
+                      {item.is_cardio ? 'Cardio' : (item.method ?? '—')}
+                    </td>
+                    <td className="py-1 pr-2">
+                      {item.is_cardio ? cardioStr(item) : (item.method_details ?? '—')}
+                    </td>
+
                     <td className="py-1 pr-2">{item.machine_label ?? '—'}</td>
                     <td className="py-1">{item.notes ?? '—'}</td>
                   </tr>
@@ -190,6 +233,8 @@ export default function ProgramPrintPage() {
           <div className={card}>Non ci sono giorni in questo programma.</div>
         )}
       </div>
+
+      {msg && <div className={card + ' border border-red-500 text-red-300'}>{msg}</div>}
     </div>
   );
 }

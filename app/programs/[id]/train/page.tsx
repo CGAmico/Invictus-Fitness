@@ -7,24 +7,43 @@ import { useProfile } from '@/lib/useProfile';
 import { card, input, select, btnPrimary, btnGhost } from '@/components/ui';
 
 type Day = { id: string; day_index: number; name: string | null };
+
 type Item = {
   id: string;
   program_day_id: string;
   exercise_id: string;
   exercise_name: string;
+  // target “pesi”
   target_sets: number | null;
   target_reps: number | null;
   target_load: number | null;
   rpe_target: number | null;
+  // cardio flags/targets
+  is_cardio: boolean;
+  cardio_minutes: number | null;
+  cardio_distance_km: number | null;
+  cardio_intensity: string | null;
+
   machine_label: string | null;
 };
 
-type LastEntry = {
+type LastEntryWeights = {
+  type: 'weights';
   load: number | null;
   reps: number | null;
   rpe: number | null;
   performed_at: string | null;
 };
+
+type LastEntryCardio = {
+  type: 'cardio';
+  minutes: number | null;
+  distance_km: number | null;
+  intensity: string | null;
+  performed_at: string | null;
+};
+
+type LastEntry = LastEntryWeights | LastEntryCardio;
 
 export default function TrainProgramPage() {
   const supabase = createClient();
@@ -33,6 +52,7 @@ export default function TrainProgramPage() {
 
   const { userId } = useProfile();
 
+  const [useRpe, setUseRpe] = useState<boolean>(false);
   const [days, setDays] = useState<Day[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -41,19 +61,37 @@ export default function TrainProgramPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const [inputs, setInputs] = useState<Record<string, { load?: number; reps?: number; rpe?: number }>>({});
+  // inputs: per pesi (load/reps/rpe) o cardio (minutes/distance/intensity)
+  const [inputs, setInputs] = useState<
+    Record<
+      string,
+      {
+        load?: number;
+        reps?: number;
+        rpe?: number;
+        minutes?: number;
+        distance_km?: number;
+        intensity?: string;
+      }
+    >
+  >({});
+
   const [lasts, setLasts] = useState<Record<string, LastEntry>>({});
 
   const loadInit = async () => {
     setMsg(null);
 
-    // Programma (verifica assegnazione lato UI)
-    const { data: prog } = await supabase
+    // Programma: uso anche use_rpe
+    const { data: prog, error: eprog } = await supabase
       .from('programs')
-      .select('id, member_id')
+      .select('id, member_id, use_rpe')
       .eq('id', programId)
       .single();
-    if (!prog) { setMsg('Programma non disponibile.'); return; }
+    if (eprog || !prog) { setMsg(eprog?.message || 'Programma non disponibile.'); return; }
+
+    setUseRpe(!!prog.use_rpe);
+
+    // verifica assegnazione (solo lato UI)
     if (prog.member_id && userId && prog.member_id !== userId) {
       setMsg('Questo programma non è assegnato a te.'); return;
     }
@@ -94,10 +132,12 @@ export default function TrainProgramPage() {
 
   const loadDayItems = async (dayId: string) => {
     if (!dayId) { setItems([]); return; }
+
     const { data: pe } = await supabase
       .from('program_exercises')
       .select(`
         id, program_day_id, exercise_id, target_sets, target_reps, target_load, rpe_target,
+        is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name ),
         machines ( name, number, location )
       `)
@@ -116,17 +156,23 @@ export default function TrainProgramPage() {
         target_reps: row.target_reps,
         target_load: row.target_load,
         rpe_target: row.rpe_target,
+        is_cardio: !!row.is_cardio,
+        cardio_minutes: row.cardio_minutes ?? null,
+        cardio_distance_km: row.cardio_distance_km ?? null,
+        cardio_intensity: row.cardio_intensity ?? null,
         machine_label: machineLabel,
       };
     });
     setItems(mapped);
 
-    // ultimi valori per exercise_id dell'utente
+    // ultimi valori per exercise_id dell'utente (sia pesi che cardio)
     if (mapped.length && userId) {
       const exIds = Array.from(new Set(mapped.map(i => i.exercise_id)));
       const { data: lastRows } = await supabase
         .from('workout_sets')
-        .select('exercise_id, load, reps, rpe, created_at')
+        .select(
+          'exercise_id, load, reps, rpe, cardio_minutes, cardio_distance_km, cardio_intensity, created_at'
+        )
         .eq('user_id', userId)
         .in('exercise_id', exIds)
         .order('created_at', { ascending: false });
@@ -134,12 +180,31 @@ export default function TrainProgramPage() {
       const byEx: Record<string, LastEntry> = {};
       (lastRows ?? []).forEach((r: any) => {
         const key = r.exercise_id as string;
-        if (!byEx[key]) byEx[key] = {
-          load: r.load ?? null,
-          reps: r.reps ?? null,
-          rpe:  r.rpe  ?? null,
-          performed_at: r.created_at ?? null,
-        };
+        if (!byEx[key]) {
+          // se la riga ha cardio valorizzato → cardio, altrimenti pesi
+          const isCardioRow =
+            r.cardio_minutes != null ||
+            r.cardio_distance_km != null ||
+            (r.cardio_intensity ?? '') !== '';
+
+          if (isCardioRow) {
+            byEx[key] = {
+              type: 'cardio',
+              minutes: r.cardio_minutes ?? null,
+              distance_km: r.cardio_distance_km ?? null,
+              intensity: r.cardio_intensity ?? null,
+              performed_at: r.created_at ?? null,
+            };
+          } else {
+            byEx[key] = {
+              type: 'weights',
+              load: r.load ?? null,
+              reps: r.reps ?? null,
+              rpe:  r.rpe  ?? null,
+              performed_at: r.created_at ?? null,
+            };
+          }
+        }
       });
       setLasts(byEx);
     } else {
@@ -152,39 +217,79 @@ export default function TrainProgramPage() {
   useEffect(() => { loadInit(); /* eslint-disable-next-line */ }, [programId, userId]);
   useEffect(() => { if (selectedDay) loadDayItems(selectedDay); /* eslint-disable-next-line */ }, [selectedDay]);
 
-  const setInput = (exId: string, field: 'load'|'reps'|'rpe', value: number) => {
+  const setInputWeights = (exId: string, field: 'load'|'reps'|'rpe', value: number) => {
     setInputs(prev => ({ ...prev, [exId]: { ...prev[exId], [field]: value } }));
+  };
+  const setInputCardio = (exId: string, field: 'minutes'|'distance_km'|'intensity', value: number|string) => {
+    setInputs(prev => ({ ...prev, [exId]: { ...prev[exId], [field]: value as any } }));
   };
 
   const save = async (it: Item) => {
     if (!userId || !sessionId) return;
     const inp = inputs[it.exercise_id] || {};
-    const payload = {
+    const nowIso = new Date().toISOString();
+
+    const base = {
       user_id: userId,
       session_id: sessionId,
-      program_id: programId,            // 👈 salva anche il programma
+      program_id: programId,
       program_exercise_id: it.id,
-      exercise_id: it.exercise_id,      // 👈 salva anche l’esercizio
-      load: inp.load ?? null,
-      reps: inp.reps ?? null,
-      rpe:  inp.rpe  ?? null,
-      created_at: new Date().toISOString(),
+      exercise_id: it.exercise_id,
+      created_at: nowIso,
     };
+
+    // split pesi vs cardio
+    const payload = it.is_cardio
+      ? {
+          ...base,
+          cardio_minutes: inp.minutes ?? null,
+          cardio_distance_km: inp.distance_km ?? null,
+          cardio_intensity: (inp.intensity ?? '') || null,
+          // neutralizza i campi pesi
+          load: null,
+          reps: null,
+          rpe:  null,
+        }
+      : {
+          ...base,
+          load: inp.load ?? null,
+          reps: inp.reps ?? null,
+          rpe:  inp.rpe  ?? null,
+          // neutralizza i campi cardio
+          cardio_minutes: null,
+          cardio_distance_km: null,
+          cardio_intensity: null,
+        };
+
     setBusy(true); setMsg(null);
     const { error } = await supabase.from('workout_sets').insert(payload);
     if (error) setMsg(error.message);
     setBusy(false);
 
-    // aggiorna hint
-    setLasts(prev => ({
-      ...prev,
-      [it.exercise_id]: {
-        load: payload.load,
-        reps: payload.reps,
-        rpe:  payload.rpe,
-        performed_at: payload.created_at,
-      }
-    }));
+    // aggiorna hint “Ultimo”
+    if (it.is_cardio) {
+      setLasts(prev => ({
+        ...prev,
+        [it.exercise_id]: {
+          type: 'cardio',
+          minutes: payload.cardio_minutes,
+          distance_km: payload.cardio_distance_km,
+          intensity: payload.cardio_intensity,
+          performed_at: nowIso,
+        }
+      }));
+    } else {
+      setLasts(prev => ({
+        ...prev,
+        [it.exercise_id]: {
+          type: 'weights',
+          load: payload.load,
+          reps: payload.reps,
+          rpe:  payload.rpe,
+          performed_at: nowIso,
+        }
+      }));
+    }
   };
 
   const endSession = async () => {
@@ -199,6 +304,30 @@ export default function TrainProgramPage() {
   };
 
   const currentDay = useMemo(() => days.find(d => d.id === selectedDay) ?? null, [days, selectedDay]);
+
+  // helpers di testo
+  const targetLine = (it: Item) => {
+    if (it.is_cardio) {
+      const parts: string[] = [];
+      if (it.cardio_minutes != null && it.cardio_minutes !== 0) parts.push(`${it.cardio_minutes} min`);
+      if (it.cardio_distance_km != null && Number(it.cardio_distance_km) !== 0) parts.push(`${it.cardio_distance_km} km`);
+      if (it.cardio_intensity) parts.push(it.cardio_intensity);
+      return `Cardio: ${parts.join(' • ') || '—'}`;
+    }
+    return `Target: ${it.target_sets ?? '—'}x${it.target_reps ?? '—'} • ${it.target_load ?? 0} kg${
+      useRpe ? ` • RPE ${it.rpe_target ?? '—'}` : ''}${it.machine_label ? ` • Macchina: ${it.machine_label}` : ''}`;
+  };
+
+  const lastLine = (last?: LastEntry) => {
+    if (!last) return null;
+    if (last.type === 'cardio') {
+      return `Ultimo: ${last.minutes ?? '—'} min • ${last.distance_km ?? '—'} km${
+        last.intensity ? ` • ${last.intensity}` : ''}${
+        last.performed_at ? ` (${new Date(last.performed_at).toLocaleDateString()})` : ''}`;
+    }
+    return `Ultimo: ${last.load ?? '—'} kg × ${last.reps ?? '—'} • RPE ${last.rpe ?? '—'}${
+      last.performed_at ? ` (${new Date(last.performed_at).toLocaleDateString()})` : ''}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -250,14 +379,10 @@ export default function TrainProgramPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="font-medium">{it.exercise_name}</div>
-                    <div className="text-xs opacity-70">
-                      Target: {it.target_sets ?? '—'}x{it.target_reps ?? '—'} • {it.target_load ?? 0} kg • RPE {it.rpe_target ?? '—'}
-                      {it.machine_label ? ` • Macchina: ${it.machine_label}` : ''}
-                    </div>
+                    <div className="text-xs opacity-70">{targetLine(it)}</div>
                     {last && (
                       <div className="text-xs opacity-70 mt-1">
-                        Ultimo: {last.load ?? '—'} kg × {last.reps ?? '—'} • RPE {last.rpe ?? '—'}
-                        {last.performed_at ? ` (${new Date(last.performed_at).toLocaleDateString()})` : ''}
+                        {lastLine(last)}
                       </div>
                     )}
                   </div>
@@ -271,38 +396,76 @@ export default function TrainProgramPage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs opacity-70">Kg</span>
-                    <input
-                      className={input}
-                      type="number" step="0.5"
-                      value={val.load ?? ''}
-                      onChange={(e)=>setInput(it.exercise_id, 'load', Number(e.target.value))}
-                      placeholder={last?.load != null ? String(last.load) : '—'}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs opacity-70">Ripetizioni</span>
-                    <input
-                      className={input}
-                      type="number" min={1}
-                      value={val.reps ?? ''}
-                      onChange={(e)=>setInput(it.exercise_id, 'reps', Number(e.target.value))}
-                      placeholder={last?.reps != null ? String(last.reps) : '—'}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs opacity-70">RPE</span>
-                    <input
-                      className={input}
-                      type="number" step="0.5" min={5} max={10}
-                      value={val.rpe ?? ''}
-                      onChange={(e)=>setInput(it.exercise_id, 'rpe', Number(e.target.value))}
-                      placeholder={last?.rpe != null ? String(last.rpe) : '—'}
-                    />
-                  </label>
-                </div>
+                {/* Input: pesi VS cardio */}
+                {it.is_cardio ? (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Minuti</span>
+                      <input
+                        className={input}
+                        type="number" min={0}
+                        value={val.minutes ?? ''}
+                        onChange={(e)=>setInputCardio(it.exercise_id, 'minutes', Number(e.target.value))}
+                        placeholder={String(it.cardio_minutes ?? '')}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Distanza (km)</span>
+                      <input
+                        className={input}
+                        type="number" step="0.1" min={0}
+                        value={val.distance_km ?? ''}
+                        onChange={(e)=>setInputCardio(it.exercise_id, 'distance_km', Number(e.target.value))}
+                        placeholder={String(it.cardio_distance_km ?? '')}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Intensità</span>
+                      <input
+                        className={input}
+                        value={val.intensity ?? ''}
+                        onChange={(e)=>setInputCardio(it.exercise_id, 'intensity', e.target.value)}
+                        placeholder={it.cardio_intensity ?? 'Es: Z2 / Facile / Media'}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Kg</span>
+                      <input
+                        className={input}
+                        type="number" step="0.5"
+                        value={val.load ?? ''}
+                        onChange={(e)=>setInputWeights(it.exercise_id, 'load', Number(e.target.value))}
+                        placeholder={String(it.target_load ?? '')}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs opacity-70">Ripetizioni</span>
+                      <input
+                        className={input}
+                        type="number" min={1}
+                        value={val.reps ?? ''}
+                        onChange={(e)=>setInputWeights(it.exercise_id, 'reps', Number(e.target.value))}
+                        placeholder={String(it.target_reps ?? '')}
+                      />
+                    </label>
+                    {useRpe && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs opacity-70">RPE</span>
+                        <input
+                          className={input}
+                          type="number" step="0.5" min={5} max={10}
+                          value={val.rpe ?? ''}
+                          onChange={(e)=>setInputWeights(it.exercise_id, 'rpe', Number(e.target.value))}
+                          placeholder={String(it.rpe_target ?? '')}
+                        />
+                      </label>
+                    )}
+                    {!useRpe && <div />} {/* per mantenere il grid 3-col se RPE è nascosto */}
+                  </div>
+                )}
               </div>
             );
           })}
