@@ -27,7 +27,25 @@ export default function LoginPage() {
 
   useEffect(() => { setMsg(null); }, [mode]);
 
-  // upsert profilo (non imposta il role: lo mettiamo lato DB con trigger; qui lasciamo dati anagrafici)
+  // 🔁 Se UTENTE GIÀ LOGGATO, reindirizza via client
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const role = (prof?.role as 'owner'|'trainer'|'member') ?? 'member';
+      router.replace(routeForRole(role));
+    })();
+  }, [router, supabase]);
+
+  // upsert profilo (non imposta il role: lo mette il trigger lato DB)
   const upsertProfile = async (uid: string) => {
     await supabase.from('profiles').upsert({
       id: uid,
@@ -40,26 +58,19 @@ export default function LoginPage() {
     });
   };
 
-  // redirect in base al ruolo, con fallback a 'member'
+  // redirect in base al ruolo (fallback a 'member')
   const redirectByRole = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) { router.replace('/login'); return; }
 
-    let role: 'owner' | 'trainer' | 'member' | null = null;
     const { data: prof } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
-    role = (prof?.role as any) ?? null;
-
-    // fallback: se manca il ruolo, impostiamo 'member' per sicurezza
-    if (!role) {
-      await supabase.from('profiles').update({ role: 'member' }).eq('id', user.id);
-      role = 'member';
-    }
-
+    const role = (prof?.role as 'owner'|'trainer'|'member') ?? 'member';
     router.replace(routeForRole(role));
   };
 
@@ -69,7 +80,6 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) return setMsg(error.message);
-
     await redirectByRole();
   };
 
@@ -77,7 +87,6 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true); setMsg(null);
 
-    // usa SITE_URL così il link email non punta a localhost
     const site = process.env.NEXT_PUBLIC_SITE_URL || location.origin;
 
     const { data, error } = await supabase.auth.signUp({
@@ -85,7 +94,7 @@ export default function LoginPage() {
       password,
       options: {
         emailRedirectTo: `${site}/login/confirm`,
-        data: { full_name: fullName || undefined }, // utile per trigger lato DB
+        data: { full_name: fullName || undefined },
       },
     });
 
@@ -94,7 +103,6 @@ export default function LoginPage() {
       return setMsg(error.message);
     }
 
-    // In dev (auto conferma) potremmo avere già l'utente
     const uid = data.user?.id;
     if (uid) {
       await upsertProfile(uid);
@@ -104,7 +112,6 @@ export default function LoginPage() {
       return;
     }
 
-    // In produzione: conferma via email
     setBusy(false);
     setMsg('Registrazione avviata. Controlla la tua email per confermare, poi accedi con email e password.');
     setMode('login');
