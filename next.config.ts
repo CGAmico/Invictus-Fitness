@@ -1,32 +1,34 @@
 // next.config.ts
 import type { NextConfig } from 'next';
-import withPWAInit from 'next-pwa';
+import withPWA from 'next-pwa';
 
-const withPWA = withPWAInit({
+const withPWAConfigured = withPWA({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
   register: true,
   skipWaiting: true,
-  // caching base: asset statici + pagine
   runtimeCaching: [
     {
-      // css, js, immagini, font
-      urlPattern: ({ request }) =>
-        ['style', 'script', 'image', 'font'].includes(request.destination),
+      urlPattern: /\/_next\/static\/.*/i,
       handler: 'CacheFirst',
       options: {
-        cacheName: 'static-assets',
-        expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 }, // 30 giorni
+        cacheName: 'next-static',
+        expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
       },
     },
     {
-      // pagine del tuo dominio
-      urlPattern: ({ url }) => url.origin === self.location.origin && url.pathname.startsWith('/'),
-      handler: 'NetworkFirst',
+      urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/i,
+      handler: 'CacheFirst',
       options: {
-        cacheName: 'pages',
-        networkTimeoutSeconds: 3,
+        cacheName: 'static-assets',
+        expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
       },
+    },
+    {
+      // pagine (evita asset noti)
+      urlPattern: /^https?.*(?<!\.(?:png|jpg|jpeg|svg|gif|webp|ico|css|js|woff2?))$/i,
+      handler: 'NetworkFirst',
+      options: { cacheName: 'pages', networkTimeoutSeconds: 3 },
     },
   ],
 });
@@ -34,7 +36,11 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
-  experimental: {},
+  async redirects() {
+    return [
+      { source: '/', destination: '/login', permanent: false }, // fix per Render
+    ];
+  },
 };
 
-export default withPWA(nextConfig);
+export default withPWAConfigured(nextConfig);
