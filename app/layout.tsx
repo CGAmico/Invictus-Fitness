@@ -1,20 +1,25 @@
+// app/layout.tsx
 import './globals.css';
 import Navbar from '@/components/Navbar';
 import ThemeProvider from '@/components/ThemeProvider';
 import OnboardingGuard from '@/components/OnboardingGuard';
 import PWARegister from '@/components/PWARegister';
+import type { Metadata, Viewport } from 'next';
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'Invictus Fitness',
   description: 'PT & members',
+  applicationName: 'Invictus Fitness',
   manifest: '/manifest.json',
   icons: {
-    icon: '/icons/icon-192x192.png',
-    apple: '/icons/icon-512x512.png',
+    icon: [
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/icons/apple-touch-icon-180.png', sizes: '180x180', type: 'image/png' },
+    ],
   },
-  // Colore tema per browser UI / PWA (bordeaux brand)
-  themeColor: '#7A1F2B',
-  applicationName: 'Invictus Fitness',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -22,23 +27,37 @@ export const metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  // Spostato qui per evitare i warning di Next
+  themeColor: '#7A1F2B',
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="it" suppressHydrationWarning>
       <head>
-        {/* Colore barra indirizzi mobile / PWA */}
+        {/* Manifest esplicito (alcuni UA lo preferiscono) */}
+        <link rel="manifest" href="/manifest.json" />
+
+        {/* Colore barra indirizzi / PWA (Next lo genera già da viewport, tenerlo è ok) */}
         <meta name="theme-color" content="#7A1F2B" />
-        {/* iOS PWA */}
+
+        {/* iOS PWA fallback */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="apple-touch-icon" href="/icons/icon-512x512.png" />
-        {/* Suggerimento: se hai un bordeaux diverso, sostituisci #7A1F2B qui e in globals.css */}
+        <meta name="apple-mobile-web-app-title" content="Invictus Fitness" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+
+        {/* Android progressive (non obbligatorio ma utile) */}
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="application-name" content="Invictus Fitness" />
       </head>
       <body className="min-h-dvh bg-black text-white">
         <ThemeProvider>
+          {/* Registrazione SW (vedi componente sotto) */}
           <PWARegister />
+
           <Navbar />
-          {/* OnboardingGuard reindirizza su /account se i dati profilo base non sono completi */}
           <OnboardingGuard>
             <main className="max-w-5xl mx-auto px-4 py-4 print-page">
               {children}
