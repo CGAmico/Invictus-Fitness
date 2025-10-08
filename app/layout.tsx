@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   title: 'Invictus Fitness',
   description: 'PT & members',
   applicationName: 'Invictus Fitness',
-  manifest: '/manifest.json',
+  manifest: '/manifest.webmanifest',
   icons: {
     icon: [
       { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
@@ -37,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="it" suppressHydrationWarning>
       <head>
         {/* Manifest esplicito (alcuni UA lo preferiscono) */}
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href="/manifest.webmanifest" />
 
         {/* Colore barra indirizzi / PWA (Next lo genera già da viewport, tenerlo è ok) */}
         <meta name="theme-color" content="#7A1F2B" />

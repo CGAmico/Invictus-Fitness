@@ -11,6 +11,8 @@ type Program = {
   start_date: string | null;
   end_date: string | null;
   use_rpe: boolean;
+  owner_id: string | null;
+  member_id: string | null;
 };
 
 type Day = {
@@ -35,6 +37,9 @@ type ProgramExercise = {
   method?: string | null;
   method_details?: string | null;
 
+  // NUOVO: recupero
+  rest_seconds: number | null;
+
   // cardio
   is_cardio: boolean;
   cardio_minutes: number | null;
@@ -48,6 +53,9 @@ export default function ProgramPrintPage() {
   const programId = params?.id as string;
 
   const [program, setProgram] = useState<Program | null>(null);
+  const [authorName, setAuthorName] = useState<string | null>(null);
+  const [memberName, setMemberName] = useState<string | null>(null);
+
   const [days, setDays] = useState<Day[]>([]);
   const [exs, setExs] = useState<ProgramExercise[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
@@ -55,14 +63,40 @@ export default function ProgramPrintPage() {
   const loadAll = async () => {
     setMsg(null);
 
+    // Programma + id autore/assegnatario
     const { data: p, error: ep } = await supabase
       .from('programs')
-      .select('id, name, start_date, end_date, use_rpe')
+      .select('id, name, start_date, end_date, use_rpe, owner_id, member_id')
       .eq('id', programId)
       .single();
     if (ep) { setMsg(ep.message); return; }
     setProgram(p as Program);
 
+    // Autore
+    if (p?.owner_id) {
+      const { data: profA } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', p.owner_id)
+        .single();
+      setAuthorName(profA?.full_name || profA?.email || null);
+    } else {
+      setAuthorName(null);
+    }
+
+    // Atleta
+    if (p?.member_id) {
+      const { data: profM } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', p.member_id)
+        .single();
+      setMemberName(profM?.full_name || profM?.email || null);
+    } else {
+      setMemberName(null);
+    }
+
+    // Giorni
     const { data: d, error: ed } = await supabase
       .from('program_days')
       .select('id, program_id, day_index, name')
@@ -71,6 +105,7 @@ export default function ProgramPrintPage() {
     if (ed) { setMsg(ed.message); return; }
     setDays((d ?? []) as Day[]);
 
+    // Esercizi
     const dayIds = (d ?? []).map(x => x.id);
     const idsForIn = dayIds.length ? dayIds : ['00000000-0000-0000-0000-000000000000'];
 
@@ -78,7 +113,7 @@ export default function ProgramPrintPage() {
       .from('program_exercises')
       .select(`
         id, program_day_id, exercise_id, order_index, target_sets, target_reps, target_load, rpe_target, notes,
-        method, method_details, is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
+        method, method_details, rest_seconds, is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name ),
         machines ( name, number, location )
       `)
@@ -88,7 +123,7 @@ export default function ProgramPrintPage() {
     if (ee) { setMsg(ee.message); return; }
 
     const mapped = (pe ?? []).map(row => {
-      const exName = (row as any).exercises?.name ?? '—';
+      const exName = (row as any).exercises?.name ?? '';
       const m = (row as any).machines as { name?: string; number?: number; location?: string | null } | null;
       const machineLabel = m ? `${m.name} #${m.number}${m.location ? ` (${m.location})` : ''}` : null;
 
@@ -106,6 +141,8 @@ export default function ProgramPrintPage() {
         method_details: (row as any).method_details ?? null,
         exercise_name: exName,
         machine_label: machineLabel,
+
+        rest_seconds: (row as any).rest_seconds ?? null,
 
         is_cardio: (row as any).is_cardio ?? false,
         cardio_minutes: (row as any).cardio_minutes ?? null,
@@ -135,35 +172,56 @@ export default function ProgramPrintPage() {
     return <div className={card}>Carico…</div>;
   }
 
-  // helper per cardio
-  const cardioStr = (it: ProgramExercise) => {
-    const parts: string[] = [];
-    if (it.cardio_minutes) parts.push(`${it.cardio_minutes} min`);
-    if (it.cardio_distance_km) parts.push(`${it.cardio_distance_km} km`);
-    if (it.cardio_intensity) parts.push(it.cardio_intensity);
-    return parts.join(' • ') || '—';
-  };
+  // Helpers ------------------------------------------------------------------
 
-  // helper per campi scrivibili
+  // linea scrivibile
   const WriteIn = ({ w = '3rem' }: { w?: string }) => (
     <span className="writein" style={{ minWidth: w }} />
   );
   const NumOrBlank = ({ v, w = '3rem' }: { v: number | null | undefined; w?: string }) =>
     v != null ? <>{v}</> : <WriteIn w={w} />;
 
+  const cardioStr = (it: ProgramExercise) => {
+    const parts: string[] = [];
+    if (it.cardio_minutes != null && it.cardio_minutes !== 0) parts.push(`${it.cardio_minutes} min`);
+    if (it.cardio_distance_km != null && Number(it.cardio_distance_km) !== 0) parts.push(`${it.cardio_distance_km} km`);
+    if (it.cardio_intensity) parts.push(it.cardio_intensity);
+    return parts.join(' • ');
+  };
+
+  // --------------------------------------------------------------------------
+
   return (
     <div className="space-y-4 print-page">
+      {/* Intestazione con metadati + note scrivibili */}
       <div className={'no-print ' + card}>
         <div className="flex items-center justify-between">
           <div className="font-semibold">{program.name}</div>
           <button className={btnGhost} onClick={() => window.print()}>Stampa</button>
         </div>
-        <div className="text-xs opacity-70">
-          Inizio: {program.start_date ?? '—'}{program.end_date ? ` • Fine: ${program.end_date}` : ''}
-          {program.use_rpe ? ' • RPE attivo' : ''}
+      </div>
+
+      <div className={card + ' avoid-break'}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div>
+            <div><span className="opacity-70">Autore:</span> {authorName || <WriteIn w="10rem" />}</div>
+            <div><span className="opacity-70">Assegnato a:</span> {memberName || <WriteIn w="10rem" />}</div>
+            <div>
+              <span className="opacity-70">Periodo:</span>{' '}
+              {program.start_date ? program.start_date : <WriteIn w="6rem" />}
+              {' '}→{' '}
+              {program.end_date ? program.end_date : <WriteIn w="6rem" />}
+            </div>
+            {program.use_rpe && <div><span className="opacity-70">RPE:</span> attivo</div>}
+          </div>
+          <div>
+            <div className="opacity-70 mb-1">Note</div>
+            <div className="note-box" />
+          </div>
         </div>
       </div>
 
+      {/* Tabella stampabile */}
       <div className="space-y-3">
         {days.map(d => (
           <div key={d.id} className={card + ' avoid-break'}>
@@ -177,6 +235,7 @@ export default function ProgramPrintPage() {
                   <th className="py-1 pr-2">Esercizio</th>
                   <th className="py-1 pr-2">Serie × Rip.</th>
                   <th className="py-1 pr-2">Kg</th>
+                  <th className="py-1 pr-2">Recupero</th>{/* NUOVA COLONNA */}
                   {program.use_rpe && <th className="py-1 pr-2">RPE</th>}
                   <th className="py-1 pr-2">Metodo</th>
                   <th className="py-1 pr-2">Dettagli</th>
@@ -187,43 +246,44 @@ export default function ProgramPrintPage() {
               <tbody>
                 {(exByDay[d.id] ?? []).map(item => (
                   <tr key={item.id} className="border-b border-neutral-800 align-top">
-                    <td className="py-1 pr-2">{item.exercise_name ?? '—'}</td>
+                    <td className="py-1 pr-2">{item.exercise_name || <WriteIn w="10rem" />}</td>
 
-                    {item.is_cardio ? (
-                      <>
-                        <td className="py-1 pr-2">—</td>
-                        <td className="py-1 pr-2">—</td>
-                        {program.use_rpe && <td className="py-1 pr-2">—</td>}
-                        <td className="py-1 pr-2">Cardio</td>
-                        <td className="py-1 pr-2">{cardioStr(item)}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="py-1 pr-2">
-                          {item.target_sets != null ? item.target_sets : <WriteIn w="2rem" />} ×{' '}
-                          {item.target_reps != null ? item.target_reps : <WriteIn w="2rem" />}
-                        </td>
-                        <td className="py-1 pr-2">
-                          <NumOrBlank v={item.target_load} w="3rem" />
-                        </td>
-                        {program.use_rpe && (
-                          <td className="py-1 pr-2">
-                            <NumOrBlank v={item.rpe_target} w="2rem" />
-                          </td>
-                        )}
-                        <td className="py-1 pr-2">{item.method ?? '—'}</td>
-                        <td className="py-1 pr-2">{item.method_details ?? '—'}</td>
-                      </>
+                    {/* Serie × Rip */}
+                    <td className="py-1 pr-2">
+                      {item.target_sets != null ? item.target_sets : <WriteIn w="2rem" />} ×{' '}
+                      {item.target_reps != null ? item.target_reps : <WriteIn w="2rem" />}
+                    </td>
+
+                    {/* Kg */}
+                    <td className="py-1 pr-2"><NumOrBlank v={item.target_load} w="3rem" /></td>
+
+                    {/* Recupero (sec) */}
+                    <td className="py-1 pr-2"><NumOrBlank v={item.rest_seconds} w="3rem" /></td>
+
+                    {/* RPE (se attivo) */}
+                    {program.use_rpe && (
+                      <td className="py-1 pr-2"><NumOrBlank v={item.rpe_target} w="2rem" /></td>
                     )}
 
-                    <td className="py-1 pr-2">{item.machine_label ?? '—'}</td>
-                    <td className="py-1">{item.notes ?? '—'}</td>
+                    {/* Metodo / Dettagli (cardio → dettagli = stringa cardio) */}
+                    <td className="py-1 pr-2">{item.method || <WriteIn w="6rem" />}</td>
+                    <td className="py-1 pr-2">
+                      {item.is_cardio
+                        ? (cardioStr(item) || <WriteIn w="10rem" />)
+                        : (item.method_details || <WriteIn w="10rem" />)}
+                    </td>
+
+                    <td className="py-1 pr-2">{item.machine_label || <WriteIn w="8rem" />}</td>
+                    <td className="py-1">{item.notes || <WriteIn w="12rem" />}</td>
                   </tr>
                 ))}
 
                 {(exByDay[d.id]?.length ?? 0) === 0 && (
                   <tr>
-                    <td className="py-2 text-xs opacity-70" colSpan={program.use_rpe ? 8 : 7}>
+                    <td
+                      className="py-2 text-xs opacity-70"
+                      colSpan={program.use_rpe ? 9 : 8} // +1 per Recupero
+                    >
                       Nessun esercizio in questo giorno.
                     </td>
                   </tr>
@@ -248,8 +308,15 @@ export default function ProgramPrintPage() {
           border-bottom: 1px solid rgba(120,120,120,.7);
           vertical-align: bottom;
         }
+        .note-box {
+          min-height: 90px;
+          border: 1px solid rgba(120,120,120,.7);
+          border-radius: 6px;
+          background: transparent;
+        }
         @media print {
-          .writein { border-bottom: 1px solid #000; }
+          .writein  { border-bottom: 1px solid #000; }
+          .note-box { border-color: #000; }
         }
       `}</style>
     </div>

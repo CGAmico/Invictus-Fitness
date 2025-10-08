@@ -171,11 +171,11 @@ export default function TrainProgramPage() {
       const { data: lastRows } = await supabase
         .from('workout_sets')
         .select(
-          'exercise_id, load, reps, rpe, cardio_minutes, cardio_distance_km, cardio_intensity, created_at'
+          'exercise_id, load, reps, rpe, cardio_minutes, cardio_distance_km, cardio_intensity'
         )
         .eq('user_id', userId)
         .in('exercise_id', exIds)
-        .order('created_at', { ascending: false });
+        .order('day_index', { ascending: false });
 
       const byEx: Record<string, LastEntry> = {};
       (lastRows ?? []).forEach((r: any) => {
@@ -193,7 +193,7 @@ export default function TrainProgramPage() {
               minutes: r.cardio_minutes ?? null,
               distance_km: r.cardio_distance_km ?? null,
               intensity: r.cardio_intensity ?? null,
-              performed_at: r.created_at ?? null,
+              performed_at: r.day_index ?? null,
             };
           } else {
             byEx[key] = {
@@ -201,7 +201,7 @@ export default function TrainProgramPage() {
               load: r.load ?? null,
               reps: r.reps ?? null,
               rpe:  r.rpe  ?? null,
-              performed_at: r.created_at ?? null,
+              performed_at: r.day_index ?? null,
             };
           }
         }
@@ -235,7 +235,7 @@ export default function TrainProgramPage() {
       program_id: programId,
       program_exercise_id: it.id,
       exercise_id: it.exercise_id,
-      created_at: nowIso,
+      day_index: nowIso,
     };
 
     // split pesi vs cardio
