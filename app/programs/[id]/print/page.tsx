@@ -27,9 +27,15 @@ type ProgramExercise = {
   program_day_id: string;
   exercise_id: string;
   order_index: number | null;
+
   target_sets: number | null;
   target_reps: number | null;
   target_load: number | null;
+
+  target_sets_text?: string | null;
+  target_reps_text?: string | null;
+  target_load_text?: string | null;
+
   rpe_target: number | null;
   notes: string | null;
   exercise_name?: string;
@@ -37,10 +43,8 @@ type ProgramExercise = {
   method?: string | null;
   method_details?: string | null;
 
-  // NUOVO: recupero
   rest_seconds: number | null;
 
-  // cardio
   is_cardio: boolean;
   cardio_minutes: number | null;
   cardio_distance_km: number | null;
@@ -63,7 +67,6 @@ export default function ProgramPrintPage() {
   const loadAll = async () => {
     setMsg(null);
 
-    // Programma + id autore/assegnatario
     const { data: p, error: ep } = await supabase
       .from('programs')
       .select('id, name, start_date, end_date, use_rpe, owner_id, member_id')
@@ -72,7 +75,6 @@ export default function ProgramPrintPage() {
     if (ep) { setMsg(ep.message); return; }
     setProgram(p as Program);
 
-    // Autore
     if (p?.owner_id) {
       const { data: profA } = await supabase
         .from('profiles')
@@ -84,7 +86,6 @@ export default function ProgramPrintPage() {
       setAuthorName(null);
     }
 
-    // Atleta
     if (p?.member_id) {
       const { data: profM } = await supabase
         .from('profiles')
@@ -96,7 +97,6 @@ export default function ProgramPrintPage() {
       setMemberName(null);
     }
 
-    // Giorni
     const { data: d, error: ed } = await supabase
       .from('program_days')
       .select('id, program_id, day_index, name')
@@ -105,15 +105,17 @@ export default function ProgramPrintPage() {
     if (ed) { setMsg(ed.message); return; }
     setDays((d ?? []) as Day[]);
 
-    // Esercizi
     const dayIds = (d ?? []).map(x => x.id);
     const idsForIn = dayIds.length ? dayIds : ['00000000-0000-0000-0000-000000000000'];
 
     const { data: pe, error: ee } = await supabase
       .from('program_exercises')
       .select(`
-        id, program_day_id, exercise_id, order_index, target_sets, target_reps, target_load, rpe_target, notes,
-        method, method_details, rest_seconds, is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
+        id, program_day_id, exercise_id, order_index,
+        target_sets, target_reps, target_load,
+        target_sets_text, target_reps_text, target_load_text,
+        rpe_target, notes, method, method_details, rest_seconds,
+        is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name ),
         machines ( name, number, location )
       `)
@@ -132,9 +134,15 @@ export default function ProgramPrintPage() {
         program_day_id: row.program_day_id,
         exercise_id: row.exercise_id,
         order_index: row.order_index,
+
         target_sets: row.target_sets,
         target_reps: row.target_reps,
         target_load: row.target_load,
+
+        target_sets_text: (row as any).target_sets_text ?? null,
+        target_reps_text: (row as any).target_reps_text ?? null,
+        target_load_text: (row as any).target_load_text ?? null,
+
         rpe_target: row.rpe_target,
         notes: row.notes,
         method: (row as any).method ?? null,
@@ -173,13 +181,12 @@ export default function ProgramPrintPage() {
   }
 
   // Helpers ------------------------------------------------------------------
-
-  // linea scrivibile
-  const WriteIn = ({ w = '3rem' }: { w?: string }) => (
-    <span className="writein" style={{ minWidth: w }} />
-  );
+  const WriteIn = ({ w = '3rem' }: { w?: string }) => (<span className="writein" style={{ minWidth: w }} />);
   const NumOrBlank = ({ v, w = '3rem' }: { v: number | null | undefined; w?: string }) =>
     v != null ? <>{v}</> : <WriteIn w={w} />;
+
+  const pref = (text?: string | null, num?: number | null) =>
+    (text && text.trim()) ? text.trim() : (num != null ? String(num) : '');
 
   const cardioStr = (it: ProgramExercise) => {
     const parts: string[] = [];
@@ -235,7 +242,7 @@ export default function ProgramPrintPage() {
                   <th className="py-1 pr-2">Esercizio</th>
                   <th className="py-1 pr-2">Serie × Rip.</th>
                   <th className="py-1 pr-2">Kg</th>
-                  <th className="py-1 pr-2">Recupero</th>{/* NUOVA COLONNA */}
+                  <th className="py-1 pr-2">Recupero</th>
                   {program.use_rpe && <th className="py-1 pr-2">RPE</th>}
                   <th className="py-1 pr-2">Metodo</th>
                   <th className="py-1 pr-2">Dettagli</th>
@@ -244,46 +251,57 @@ export default function ProgramPrintPage() {
                 </tr>
               </thead>
               <tbody>
-                {(exByDay[d.id] ?? []).map(item => (
-                  <tr key={item.id} className="border-b border-neutral-800 align-top">
-                    <td className="py-1 pr-2">{item.exercise_name || <WriteIn w="10rem" />}</td>
+                {(exByDay[d.id] ?? []).map(item => {
+                  const setsView = pref(item.target_sets_text, item.target_sets);
+                  const repsView = pref(item.target_reps_text, item.target_reps);
+                  const loadView = (item.target_load_text && item.target_load_text.trim())
+                    ? item.target_load_text.trim()
+                    : (item.target_load != null ? String(item.target_load) : '');
 
-                    {/* Serie × Rip */}
-                    <td className="py-1 pr-2">
-                      {item.target_sets != null ? item.target_sets : <WriteIn w="2rem" />} ×{' '}
-                      {item.target_reps != null ? item.target_reps : <WriteIn w="2rem" />}
-                    </td>
+                  return (
+                    <tr key={item.id} className="border-b border-neutral-800 align-top">
+                      <td className="py-1 pr-2">{item.exercise_name || <WriteIn w="10rem" />}</td>
 
-                    {/* Kg */}
-                    <td className="py-1 pr-2"><NumOrBlank v={item.target_load} w="3rem" /></td>
+                      {/* Serie × Rip */}
+                      <td className="py-1 pr-2">
+                        {setsView ? setsView : <WriteIn w="2rem" />} ×{' '}
+                        {repsView ? repsView : <WriteIn w="2rem" />}
+                      </td>
 
-                    {/* Recupero (sec) */}
-                    <td className="py-1 pr-2"><NumOrBlank v={item.rest_seconds} w="3rem" /></td>
+                      {/* Kg */}
+                      <td className="py-1 pr-2">
+                        {loadView ? loadView : <WriteIn w="3.2rem" />}
+                      </td>
 
-                    {/* RPE (se attivo) */}
-                    {program.use_rpe && (
-                      <td className="py-1 pr-2"><NumOrBlank v={item.rpe_target} w="2rem" /></td>
-                    )}
+                      {/* Recupero (sec) */}
+                      <td className="py-1 pr-2">
+                        {item.rest_seconds != null ? item.rest_seconds : <WriteIn w="3rem" />}
+                      </td>
 
-                    {/* Metodo / Dettagli (cardio → dettagli = stringa cardio) */}
-                    <td className="py-1 pr-2">{item.method || <WriteIn w="6rem" />}</td>
-                    <td className="py-1 pr-2">
-                      {item.is_cardio
-                        ? (cardioStr(item) || <WriteIn w="10rem" />)
-                        : (item.method_details || <WriteIn w="10rem" />)}
-                    </td>
+                      {/* RPE (se attivo) */}
+                      {program.use_rpe && (
+                        <td className="py-1 pr-2">
+                          {item.rpe_target != null ? item.rpe_target : <WriteIn w="2rem" />}
+                        </td>
+                      )}
 
-                    <td className="py-1 pr-2">{item.machine_label || <WriteIn w="8rem" />}</td>
-                    <td className="py-1">{item.notes || <WriteIn w="12rem" />}</td>
-                  </tr>
-                ))}
+                      {/* Metodo / Dettagli (cardio → dettagli = stringa cardio) */}
+                      <td className="py-1 pr-2">{item.method || <WriteIn w="6rem" />}</td>
+                      <td className="py-1 pr-2">
+                        {item.is_cardio
+                          ? (cardioStr(item) || <WriteIn w="10rem" />)
+                          : (item.method_details || <WriteIn w="10rem" />)}
+                      </td>
+
+                      <td className="py-1 pr-2">{item.machine_label || <WriteIn w="8rem" />}</td>
+                      <td className="py-1">{item.notes || <WriteIn w="12rem" />}</td>
+                    </tr>
+                  );
+                })}
 
                 {(exByDay[d.id]?.length ?? 0) === 0 && (
                   <tr>
-                    <td
-                      className="py-2 text-xs opacity-70"
-                      colSpan={program.use_rpe ? 9 : 8} // +1 per Recupero
-                    >
+                    <td className="py-2 text-xs opacity-70" colSpan={program.use_rpe ? 9 : 8}>
                       Nessun esercizio in questo giorno.
                     </td>
                   </tr>
