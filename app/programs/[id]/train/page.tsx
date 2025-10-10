@@ -13,11 +13,22 @@ type Item = {
   program_day_id: string;
   exercise_id: string;
   exercise_name: string;
-  // target “pesi”
+
+  // target “pesi” (numerici per compatibilità)
   target_sets: number | null;
   target_reps: number | null;
   target_load: number | null;
+
+  // target “pesi” TESTUALI (nuovi, priorità di visualizzazione)
+  target_sets_text?: string | null;
+  target_reps_text?: string | null;
+  target_load_text?: string | null;
+
   rpe_target: number | null;
+
+  // recupero (sec) opzionale
+  rest_seconds?: number | null;
+
   // cardio flags/targets
   is_cardio: boolean;
   cardio_minutes: number | null;
@@ -136,7 +147,10 @@ export default function TrainProgramPage() {
     const { data: pe } = await supabase
       .from('program_exercises')
       .select(`
-        id, program_day_id, exercise_id, target_sets, target_reps, target_load, rpe_target,
+        id, program_day_id, exercise_id,
+        target_sets, target_reps, target_load,
+        target_sets_text, target_reps_text, target_load_text,
+        rpe_target, rest_seconds,
         is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name ),
         machines ( name, number, location )
@@ -152,10 +166,18 @@ export default function TrainProgramPage() {
         program_day_id: row.program_day_id,
         exercise_id: row.exercise_id,
         exercise_name: row.exercises?.name ?? '—',
+
         target_sets: row.target_sets,
         target_reps: row.target_reps,
         target_load: row.target_load,
-        rpe_target: row.rpe_target,
+
+        target_sets_text: row.target_sets_text ?? null,
+        target_reps_text: row.target_reps_text ?? null,
+        target_load_text: row.target_load_text ?? null,
+
+        rpe_target: row.rpe_target ?? null,
+        rest_seconds: row.rest_seconds ?? null,
+
         is_cardio: !!row.is_cardio,
         cardio_minutes: row.cardio_minutes ?? null,
         cardio_distance_km: row.cardio_distance_km ?? null,
@@ -181,7 +203,6 @@ export default function TrainProgramPage() {
       (lastRows ?? []).forEach((r: any) => {
         const key = r.exercise_id as string;
         if (!byEx[key]) {
-          // se la riga ha cardio valorizzato → cardio, altrimenti pesi
           const isCardioRow =
             r.cardio_minutes != null ||
             r.cardio_distance_km != null ||
@@ -238,14 +259,12 @@ export default function TrainProgramPage() {
       day_index: nowIso,
     };
 
-    // split pesi vs cardio
     const payload = it.is_cardio
       ? {
           ...base,
           cardio_minutes: inp.minutes ?? null,
           cardio_distance_km: inp.distance_km ?? null,
           cardio_intensity: (inp.intensity ?? '') || null,
-          // neutralizza i campi pesi
           load: null,
           reps: null,
           rpe:  null,
@@ -255,7 +274,6 @@ export default function TrainProgramPage() {
           load: inp.load ?? null,
           reps: inp.reps ?? null,
           rpe:  inp.rpe  ?? null,
-          // neutralizza i campi cardio
           cardio_minutes: null,
           cardio_distance_km: null,
           cardio_intensity: null,
@@ -305,7 +323,10 @@ export default function TrainProgramPage() {
 
   const currentDay = useMemo(() => days.find(d => d.id === selectedDay) ?? null, [days, selectedDay]);
 
-  // helpers di testo
+  // helpers di testo ----------------------------------------------------------
+  const pref = (text?: string | null, num?: number | null) =>
+    (text && text.trim()) ? text.trim() : (num != null ? String(num) : '—');
+
   const targetLine = (it: Item) => {
     if (it.is_cardio) {
       const parts: string[] = [];
@@ -314,8 +335,17 @@ export default function TrainProgramPage() {
       if (it.cardio_intensity) parts.push(it.cardio_intensity);
       return `Cardio: ${parts.join(' • ') || '—'}`;
     }
-    return `Target: ${it.target_sets ?? '—'}x${it.target_reps ?? '—'} • ${it.target_load ?? 0} kg${
-      useRpe ? ` • RPE ${it.rpe_target ?? '—'}` : ''}${it.machine_label ? ` • Macchina: ${it.machine_label}` : ''}`;
+
+    const sets = pref(it.target_sets_text, it.target_sets);
+    const reps = pref(it.target_reps_text, it.target_reps);
+    const loadTxt = (it.target_load_text && it.target_load_text.trim())
+      ? it.target_load_text.trim()
+      : (it.target_load != null ? `${it.target_load} kg` : '—');
+
+    const rec = (it.rest_seconds != null) ? ` • Rec ${it.rest_seconds}s` : '';
+
+    return `Target: ${sets}x${reps} • ${loadTxt}${
+      useRpe ? ` • RPE ${it.rpe_target ?? '—'}` : ''}${rec}${it.machine_label ? ` • Macchina: ${it.machine_label}` : ''}`;
   };
 
   const lastLine = (last?: LastEntry) => {
@@ -328,6 +358,8 @@ export default function TrainProgramPage() {
     return `Ultimo: ${last.load ?? '—'} kg × ${last.reps ?? '—'} • RPE ${last.rpe ?? '—'}${
       last.performed_at ? ` (${new Date(last.performed_at).toLocaleDateString()})` : ''}`;
   };
+
+  // --------------------------------------------------------------------------
 
   return (
     <div className="space-y-6">
@@ -438,7 +470,11 @@ export default function TrainProgramPage() {
                         type="number" step="0.5"
                         value={val.load ?? ''}
                         onChange={(e)=>setInputWeights(it.exercise_id, 'load', Number(e.target.value))}
-                        placeholder={String(it.target_load ?? '')}
+                        placeholder={
+                          (it.target_load_text && it.target_load_text.trim())
+                            ? it.target_load_text
+                            : String(it.target_load ?? '')
+                        }
                       />
                     </label>
                     <label className="flex flex-col gap-1">
@@ -448,7 +484,11 @@ export default function TrainProgramPage() {
                         type="number" min={1}
                         value={val.reps ?? ''}
                         onChange={(e)=>setInputWeights(it.exercise_id, 'reps', Number(e.target.value))}
-                        placeholder={String(it.target_reps ?? '')}
+                        placeholder={
+                          (it.target_reps_text && it.target_reps_text.trim())
+                            ? it.target_reps_text
+                            : String(it.target_reps ?? '')
+                        }
                       />
                     </label>
                     {useRpe && (
