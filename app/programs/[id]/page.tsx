@@ -22,7 +22,7 @@ type Day = {
   program_id: string;
   day_index: number;
   name: string | null;
-  created_at?: string; // per ordine stabile quando gli indici sono rotti
+  created_at?: string;
 };
 
 type ProgramExercise = {
@@ -30,9 +30,17 @@ type ProgramExercise = {
   program_day_id: string;
   exercise_id: string;
   order_index: number | null;
+
+  // numerici
   target_sets: number | null;
   target_reps: number | null;
   target_load: number | null;
+
+  // testuali (NUOVI – priorità di visualizzazione)
+  target_sets_text?: string | null;
+  target_reps_text?: string | null;
+  target_load_text?: string | null;
+
   rpe_target: number | null;
   notes: string | null;
   exercise_name?: string;
@@ -42,10 +50,10 @@ type ProgramExercise = {
   method_details?: string | null;
   video_url?: string | null;
 
-  // NUOVO: recupero (sec)
-  rest_seconds: number | null;
+  // recupero opzionale
+  rest_seconds?: number | null;
 
-  // Cardio
+  // cardio
   is_cardio: boolean;
   cardio_minutes: number | null;
   cardio_distance_km: number | null;
@@ -71,18 +79,22 @@ export default function ProgramDetailPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // form nuovo giorno
+  // nuovo giorno
   const [dayName, setDayName] = useState('');
   const [dayIndex, setDayIndex] = useState<number>(1);
 
   // form aggiungi esercizio
   const [selDay, setSelDay] = useState<string>('');
   const [exerciseName, setExerciseName] = useState('');
-  const [sets, setSets] = useState<string>('');       // string per consentire vuoto
+
+  // >>> cambiano a stringa
+  const [sets, setSets] = useState<string>('');
   const [reps, setReps] = useState<string>('');
   const [load, setLoad] = useState<string>('');
+
   const [rpe, setRpe] = useState<string>('');
-  const [restSec, setRestSec] = useState<string>(''); // <-- NUOVO (facoltativo)
+  const [restSec, setRestSec] = useState<string>(''); // Recupero (sec) opzionale
+
   const [selMachine, setSelMachine] = useState<string>('');
   const [method, setMethod] = useState<string>('');
   const [methodDetails, setMethodDetails] = useState('');
@@ -93,7 +105,7 @@ export default function ProgramDetailPage() {
   const [cardioDistanceKm, setCardioDistanceKm] = useState<string>('');
   const [cardioIntensity, setCardioIntensity] = useState<string>('');
 
-  // UI rename giorno
+  // Rinomina giorno
   const [editingDayId, setEditingDayId] = useState<string | null>(null);
   const [editingDayName, setEditingDayName] = useState<string>('');
 
@@ -138,7 +150,6 @@ export default function ProgramDetailPage() {
     if (ed) { setMsg(ed.message); return; }
     const daysArr = (d ?? []) as Day[];
 
-    // normalizza se necessario
     if (await normalizeDayOrderIfNeeded(daysArr)) {
       await loadAll();
       return;
@@ -169,8 +180,10 @@ export default function ProgramDetailPage() {
     const { data: pe, error: ee } = await supabase
       .from('program_exercises')
       .select(`
-        id, program_day_id, exercise_id, order_index, target_sets, target_reps, target_load, rpe_target, notes,
-        method, method_details, machine_id, rest_seconds,
+        id, program_day_id, exercise_id, order_index,
+        target_sets, target_reps, target_load,
+        target_sets_text, target_reps_text, target_load_text,
+        rpe_target, notes, method, method_details, machine_id, rest_seconds,
         is_cardio, cardio_minutes, cardio_distance_km, cardio_intensity,
         exercises ( name, video_url ),
         machines ( name, number, location )
@@ -191,9 +204,15 @@ export default function ProgramDetailPage() {
         program_day_id: row.program_day_id,
         exercise_id: row.exercise_id,
         order_index: row.order_index,
+
         target_sets: row.target_sets,
         target_reps: row.target_reps,
         target_load: row.target_load,
+
+        target_sets_text: (row as any).target_sets_text ?? null,
+        target_reps_text: (row as any).target_reps_text ?? null,
+        target_load_text: (row as any).target_load_text ?? null,
+
         rpe_target: row.rpe_target,
         notes: row.notes,
         method: (row as any).method ?? null,
@@ -212,7 +231,6 @@ export default function ProgramDetailPage() {
       } as ProgramExercise;
     });
 
-    // normalizza ordini esercizi per tutti i giorni
     const needReload = await normalizeAllExerciseOrdersIfNeeded(mapped);
     if (needReload) {
       await loadAll();
@@ -324,6 +342,16 @@ export default function ProgramDetailPage() {
     return null;
   };
 
+  const parseMaybeNumber = (s: string): number | null => {
+    const t = s.trim();
+    if (!t) return null;
+    // solo numerico (float) → salva anche nei campi numerici
+    if (/^-?\d+([.,]\d+)?$/.test(t)) {
+      return Number(t.replace(',', '.'));
+    }
+    return null;
+  };
+
   const addExercise = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit || !selDay) return;
@@ -332,25 +360,43 @@ export default function ProgramDetailPage() {
     const exercise_id = await ensureExerciseId(exerciseName);
     if (!exercise_id) { setBusy(false); return; }
 
-    // calcola order_index = max + 1 nel giorno (dopo normalizzazione)
     await normalizeExerciseOrderIfNeeded(selDay, exs);
     const inDay = exs.filter(x => x.program_day_id === selDay);
     const maxOrder = Math.max(0, ...inDay.map(i => i.order_index || 0));
     const nextOrder = maxOrder + 1;
 
+    // campi testuali
+    const setsText = (sets || '').trim() || null;
+    const repsText = (reps || '').trim() || null;
+    const loadText = (load || '').trim() || null;
+
+    // prova a valorizzare anche i numerici se input è numerico puro
+    const setsNum = setsText ? parseMaybeNumber(setsText) : null;
+    const repsNum = repsText ? parseMaybeNumber(repsText) : null;
+    const loadNum = loadText ? parseMaybeNumber(loadText) : null;
+
     const insertPayload: any = {
       program_day_id: selDay,
       exercise_id,
-      order_index:  nextOrder,
+      order_index: nextOrder,
 
-      // Forza → null se cardio o vuoto
-      target_sets:  isCardio || !sets ? null : Number(sets),
-      target_reps:  isCardio || !reps ? null : Number(reps),
-      target_load:  isCardio || !load ? null : Number(load),
-      rpe_target:   isCardio || !program?.use_rpe || !rpe ? null : Number(rpe),
+      // testuali
+      target_sets_text: setsText,
+      target_reps_text: repsText,
+      target_load_text: loadText,
 
-      // NUOVO: recupero (solo forza)
-      rest_seconds: isCardio || !restSec ? null : Number(restSec),
+      // numerici (solo se realmente numerici)
+      target_sets: isCardio ? null : setsNum,
+      target_reps: isCardio ? null : repsNum,
+      target_load: isCardio ? null : loadNum,
+
+      // RPE numerico invariato
+      rpe_target: isCardio || !program?.use_rpe || !rpe.trim()
+        ? null
+        : Number(rpe.replace(',', '.')),
+
+      // Recupero opzionale
+      rest_seconds: restSec.trim() ? Number(restSec) : null,
 
       // Cardio
       is_cardio: isCardio,
@@ -363,9 +409,7 @@ export default function ProgramDetailPage() {
     };
     if (selMachine) insertPayload.machine_id = selMachine;
 
-    const { error } = await supabase
-      .from('program_exercises')
-      .insert(insertPayload);
+    const { error } = await supabase.from('program_exercises').insert(insertPayload);
     if (error) setMsg(error.message);
 
     setBusy(false);
@@ -373,8 +417,7 @@ export default function ProgramDetailPage() {
     setExerciseName('');
     setSelMachine('');
     setMethod(''); setMethodDetails('');
-    setSets(''); setReps(''); setLoad(''); setRpe('');
-    setRestSec(''); // <-- reset recupero
+    setSets(''); setReps(''); setLoad(''); setRpe(''); setRestSec('');
     setIsCardio(false); setCardioMinutes(''); setCardioDistanceKm(''); setCardioIntensity('');
     await loadAll();
   };
@@ -398,15 +441,9 @@ export default function ProgramDetailPage() {
     await loadAll();
   };
 
-  // ---------- RENAME DAY ----------
-  const startRenameDay = (d: Day) => {
-    setEditingDayId(d.id);
-    setEditingDayName(d.name ?? '');
-  };
-  const cancelRenameDay = () => {
-    setEditingDayId(null);
-    setEditingDayName('');
-  };
+  // RENAME DAY
+  const startRenameDay = (d: Day) => { setEditingDayId(d.id); setEditingDayName(d.name ?? ''); };
+  const cancelRenameDay = () => { setEditingDayId(null); setEditingDayName(''); };
   const saveRenameDay = async () => {
     if (!editingDayId) return;
     setBusy(true); setMsg(null);
@@ -421,13 +458,12 @@ export default function ProgramDetailPage() {
     await loadAll();
   };
 
-  // ---------- REORDER DAYS ----------
+  // REORDER DAYS
   const moveDay = async (dayId: string, dir: 'up' | 'down') => {
     if (await normalizeDayOrderIfNeeded(days)) {
       await loadAll();
       return;
     }
-
     const idx = days.findIndex(d => d.id === dayId);
     if (idx < 0) return;
     const targetIndex = dir === 'up' ? idx - 1 : idx + 1;
@@ -437,23 +473,15 @@ export default function ProgramDetailPage() {
     const b = days[targetIndex];
 
     setBusy(true); setMsg(null);
-    const { error: e1 } = await supabase
-      .from('program_days')
-      .update({ day_index: b.day_index })
-      .eq('id', a.id);
+    const { error: e1 } = await supabase.from('program_days').update({ day_index: b.day_index }).eq('id', a.id);
     if (e1) { setBusy(false); setMsg(e1.message); return; }
-
-    const { error: e2 } = await supabase
-      .from('program_days')
-      .update({ day_index: a.day_index })
-      .eq('id', b.id);
+    const { error: e2 } = await supabase.from('program_days').update({ day_index: a.day_index }).eq('id', b.id);
     setBusy(false);
     if (e2) { setMsg(e2.message); return; }
-
     await loadAll();
   };
 
-  // ---------- REORDER EXERCISES ----------
+  // REORDER EXERCISES
   const moveExercise = async (item: ProgramExercise, dir: 'up' | 'down') => {
     await normalizeExerciseOrderIfNeeded(item.program_day_id, exs);
 
@@ -468,19 +496,11 @@ export default function ProgramDetailPage() {
     const b = sameDay[targetIndex];
 
     setBusy(true); setMsg(null);
-    const { error: e1 } = await supabase
-      .from('program_exercises')
-      .update({ order_index: b.order_index })
-      .eq('id', a.id);
+    const { error: e1 } = await supabase.from('program_exercises').update({ order_index: b.order_index }).eq('id', a.id);
     if (e1) { setBusy(false); setMsg(e1.message); return; }
-
-    const { error: e2 } = await supabase
-      .from('program_exercises')
-      .update({ order_index: a.order_index })
-      .eq('id', b.id);
+    const { error: e2 } = await supabase.from('program_exercises').update({ order_index: a.order_index }).eq('id', b.id);
     setBusy(false);
     if (e2) { setMsg(e2.message); return; }
-
     await loadAll();
   };
 
@@ -492,6 +512,9 @@ export default function ProgramDetailPage() {
     }
     return map;
   }, [exs]);
+
+  const pref = (text?: string | null, num?: number | null) =>
+    (text && text.trim()) ? text.trim() : (num != null ? String(num) : '—');
 
   if (!program) {
     return <div className={card}>Carico…</div>;
@@ -563,11 +586,7 @@ export default function ProgramDetailPage() {
               <form onSubmit={addExercise} className="grid grid-cols-1 md:grid-cols-12 gap-2">
                 <label className="md:col-span-2 flex flex-col gap-1">
                   <span className="text-xs opacity-70">Giorno</span>
-                  <select
-                    className={select}
-                    value={selDay}
-                    onChange={(e)=>setSelDay(e.target.value)}
-                  >
+                  <select className={select} value={selDay} onChange={(e)=>setSelDay(e.target.value)}>
                     <option value="">Seleziona…</option>
                     {days.map(d => (
                       <option key={d.id} value={d.id}>
@@ -598,11 +617,7 @@ export default function ProgramDetailPage() {
                 {/* Toggle Cardio */}
                 <div className="md:col-span-2 flex items-end">
                   <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={isCardio}
-                      onChange={(e)=>setIsCardio(e.target.checked)}
-                    />
+                    <input type="checkbox" checked={isCardio} onChange={(e)=>setIsCardio(e.target.checked)} />
                     <span className="text-sm">Cardio</span>
                   </label>
                 </div>
@@ -612,86 +627,54 @@ export default function ProgramDetailPage() {
                   <>
                     <label className="md:col-span-2 flex flex-col gap-1">
                       <span className="text-xs opacity-70">Durata (min)</span>
-                      <input
-                        className={input}
-                        type="number" min={0}
-                        value={cardioMinutes}
-                        onChange={(e)=>setCardioMinutes(e.target.value)}
-                      />
+                      <input className={input} type="number" min={0}
+                        value={cardioMinutes} onChange={(e)=>setCardioMinutes(e.target.value)} />
                     </label>
                     <label className="md:col-span-2 flex flex-col gap-1">
                       <span className="text-xs opacity-70">Distanza (km)</span>
-                      <input
-                        className={input}
-                        type="number" min={0} step="0.01"
-                        value={cardioDistanceKm}
-                        onChange={(e)=>setCardioDistanceKm(e.target.value)}
-                      />
+                      <input className={input} type="number" min={0} step="0.01"
+                        value={cardioDistanceKm} onChange={(e)=>setCardioDistanceKm(e.target.value)} />
                     </label>
                     <label className="md:col-span-4 flex flex-col gap-1">
                       <span className="text-xs opacity-70">Intensità / Vel / FC (opz.)</span>
-                      <input
-                        className={input}
+                      <input className={input}
                         placeholder="Es: Vel 7.0 / FC 140-150"
-                        value={cardioIntensity}
-                        onChange={(e)=>setCardioIntensity(e.target.value)}
-                      />
+                        value={cardioIntensity} onChange={(e)=>setCardioIntensity(e.target.value)} />
                     </label>
                   </>
                 ) : (
                   <>
                     <label className="md:col-span-1 flex flex-col gap-1">
                       <span className="text-xs opacity-70">Serie</span>
-                      <input
-                        className={input}
-                        type="number" min={0}
-                        value={sets}
-                        onChange={(e)=>setSets(e.target.value)}
-                      />
+                      <input className={input} placeholder=""
+                        value={sets} onChange={(e)=>setSets(e.target.value)} />
                     </label>
 
                     <label className="md:col-span-1 flex flex-col gap-1">
                       <span className="text-xs opacity-70">Ripetizioni</span>
-                      <input
-                        className={input}
-                        type="number" min={0}
-                        value={reps}
-                        onChange={(e)=>setReps(e.target.value)}
-                      />
+                      <input className={input} placeholder=""
+                        value={reps} onChange={(e)=>setReps(e.target.value)} />
                     </label>
 
                     <label className="md:col-span-1 flex flex-col gap-1">
                       <span className="text-xs opacity-70">Kg</span>
-                      <input
-                        className={input}
-                        type="number" step="0.5" min={0}
-                        value={load}
-                        onChange={(e)=>setLoad(e.target.value)}
-                      />
+                      <input className={input} placeholder=""
+                        value={load} onChange={(e)=>setLoad(e.target.value)} />
                     </label>
 
                     {program.use_rpe && (
                       <label className="md:col-span-1 flex flex-col gap-1">
                         <span className="text-xs opacity-70">RPE</span>
-                        <input
-                          className={input}
-                          type="number" step="0.5" min={1} max={10}
-                          value={rpe}
-                          onChange={(e)=>setRpe(e.target.value)}
-                        />
+                        <input className={input} type="number" step="0.5" min={1} max={10}
+                          value={rpe} onChange={(e)=>setRpe(e.target.value)} />
                       </label>
                     )}
 
-                    {/* NUOVO: Recupero (sec) */}
+                    {/* Recupero */}
                     <label className="md:col-span-1 flex flex-col gap-1">
-                      <span className="text-xs opacity-70">Recupero (sec)</span>
-                      <input
-                        className={input}
-                        type="number" min={0}
-                        value={restSec}
-                        onChange={(e)=>setRestSec(e.target.value)}
-                        placeholder="es. 60"
-                      />
+                      <span className="text-xs opacity-70">Recupero</span>
+                      <input className={input} type="number" min={0}
+                        value={restSec} onChange={(e)=>setRestSec(e.target.value)} placeholder="" />
                     </label>
                   </>
                 )}
@@ -699,32 +682,22 @@ export default function ProgramDetailPage() {
                 {/* Metodo */}
                 <label className="md:col-span-2 flex flex-col gap-1">
                   <span className="text-xs opacity-70">Metodo (opz.)</span>
-                  <input
-                    className={input}
+                  <input className={input}
                     placeholder="Superset, Dropset, Rest-Pause…"
-                    value={method}
-                    onChange={(e)=>setMethod(e.target.value)}
-                  />
+                    value={method} onChange={(e)=>setMethod(e.target.value)} />
                 </label>
 
                 <label className="md:col-span-2 flex flex-col gap-1">
                   <span className="text-xs opacity-70">Dettagli metodo (opz.)</span>
-                  <input
-                    className={input}
-                    placeholder="Esempio: con croci / 7-7-7 / scala 70-50-30%"
-                    value={methodDetails}
-                    onChange={(e)=>setMethodDetails(e.target.value)}
-                  />
+                  <input className={input}
+                    placeholder=""
+                    value={methodDetails} onChange={(e)=>setMethodDetails(e.target.value)} />
                 </label>
 
                 {/* Macchinario (opz.) */}
                 <label className="md:col-span-2 flex flex-col gap-1">
                   <span className="text-xs opacity-70">Macchinario (opz.)</span>
-                  <select
-                    className={select}
-                    value={selMachine}
-                    onChange={(e)=>setSelMachine(e.target.value)}
-                  >
+                  <select className={select} value={selMachine} onChange={(e)=>setSelMachine(e.target.value)}>
                     <option value="">— Nessuna macchina —</option>
                     {machines.map(m => (
                       <option key={m.id} value={m.id}>
@@ -779,20 +752,10 @@ export default function ProgramDetailPage() {
               {/* azioni giorno */}
               {canEdit && (
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className={btnGhost}
-                    onClick={()=>moveDay(d.id, 'up')}
-                    disabled={i===0 || busy}
-                    title="Sposta su"
-                  >↑</button>
-                  <button
-                    type="button"
-                    className={btnGhost}
-                    onClick={()=>moveDay(d.id, 'down')}
-                    disabled={i===days.length-1 || busy}
-                    title="Sposta giù"
-                  >↓</button>
+                  <button type="button" className={btnGhost}
+                    onClick={()=>moveDay(d.id, 'up')} disabled={i===0 || busy} title="Sposta su">↑</button>
+                  <button type="button" className={btnGhost}
+                    onClick={()=>moveDay(d.id, 'down')} disabled={i===days.length-1 || busy} title="Sposta giù">↓</button>
                   <button type="button" className={btnGhost} onClick={()=>deleteDay(d.id)}>Elimina giorno</button>
                 </div>
               )}
@@ -800,67 +763,65 @@ export default function ProgramDetailPage() {
 
             {/* elenco esercizi */}
             <div className="mt-3 space-y-2">
-              {(exByDay[d.id] ?? []).map((item, j, arr) => (
-                <div key={item.id} className="flex items-center justify-between border border-neutral-700 rounded px-3 py-2">
-                  <div>
-                    <div className="font-medium flex items-center gap-2">
-                      <span>{item.exercise_name ?? '—'}</span>
-                      {item.video_url && (
-                        <button
-                          type="button"
-                          className="text-xs underline opacity-90 hover:opacity-100"
-                          onClick={() => { setVideoUrl(item.video_url || null); setVideoOpen(true); }}
-                        >
-                          ▶︎ Video
-                        </button>
+              {(exByDay[d.id] ?? []).map((item, j, arr) => {
+                const setsView = pref(item.target_sets_text, item.target_sets);
+                const repsView = pref(item.target_reps_text, item.target_reps);
+                const loadView = (item.target_load_text && item.target_load_text.trim())
+                  ? item.target_load_text.trim()
+                  : (item.target_load != null ? `${item.target_load} kg` : '—');
+
+                return (
+                  <div key={item.id} className="flex items-center justify-between border border-neutral-700 rounded px-3 py-2">
+                    <div>
+                      <div className="font-medium flex items-center gap-2">
+                        <span>{item.exercise_name ?? '—'}</span>
+                        {item.video_url && (
+                          <button
+                            type="button"
+                            className="text-xs underline opacity-90 hover:opacity-100"
+                            onClick={() => { setVideoUrl(item.video_url || null); setVideoOpen(true); }}
+                          >
+                            ▶︎ Video
+                          </button>
+                        )}
+                      </div>
+
+                      {item.is_cardio ? (
+                        <div className="text-xs opacity-70">
+                          {item.cardio_minutes != null && item.cardio_minutes !== 0 ? `${item.cardio_minutes} min` : ''}
+                          {item.cardio_distance_km != null && Number(item.cardio_distance_km) !== 0 ? ` • ${item.cardio_distance_km} km` : ''}
+                          {item.cardio_intensity ? ` • ${item.cardio_intensity}` : ''}
+                          {item.method ? ` • Metodo: ${item.method}` : ''}
+                          {item.method_details ? ` (${item.method_details})` : ''}
+                          {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
+                        </div>
+                      ) : (
+                        <div className="text-xs opacity-70">
+                          {setsView}x{repsView}
+                          {loadView !== '—' ? ` • ${loadView}` : ''}
+                          {program.use_rpe && (item.rpe_target != null) ? ` • RPE ${item.rpe_target}` : ''}
+                          {item.rest_seconds != null ? ` • Rec ${item.rest_seconds}s` : ''}
+                          {item.method ? ` • Metodo: ${item.method}` : ''}
+                          {item.method_details ? ` (${item.method_details})` : ''}
+                          {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
+                        </div>
                       )}
                     </div>
 
-                    {/* DETTAGLI: cardio vs forza */}
-                    {item.is_cardio ? (
-                      <div className="text-xs opacity-70">
-                        {item.cardio_minutes != null && item.cardio_minutes !== 0 ? `${item.cardio_minutes} min` : ''}
-                        {item.cardio_distance_km != null && Number(item.cardio_distance_km) !== 0 ? ` • ${item.cardio_distance_km} km` : ''}
-                        {item.cardio_intensity ? ` • ${item.cardio_intensity}` : ''}
-                        {item.method ? ` • Metodo: ${item.method}` : ''}
-                        {item.method_details ? ` (${item.method_details})` : ''}
-                        {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
-                      </div>
-                    ) : (
-                      <div className="text-xs opacity-70">
-                        {item.target_sets != null ? `${item.target_sets}x` : ''}
-                        {item.target_reps != null ? `${item.target_reps}` : (item.target_sets != null ? '—' : '')}
-                        {item.target_load != null ? ` • ${item.target_load} kg` : ''}
-                        {program.use_rpe && (item.rpe_target != null) ? ` • RPE ${item.rpe_target}` : ''}
-                        {item.rest_seconds != null ? ` • Rec ${item.rest_seconds}s` : ''}{/* <-- mostra recupero nella vista */}
-                        {item.method ? ` • Metodo: ${item.method}` : ''}
-                        {item.method_details ? ` (${item.method_details})` : ''}
-                        {item.machine_label ? ` • Macchina: ${item.machine_label}` : ''}
+                    {canEdit && (
+                      <div className="flex items-center gap-2">
+                        <button type="button" className={btnGhost}
+                          onClick={()=>moveExercise(item, 'up')}
+                          disabled={j===0 || busy} title="Sposta su">↑</button>
+                        <button type="button" className={btnGhost}
+                          onClick={()=>moveExercise(item, 'down')}
+                          disabled={j===arr.length-1 || busy} title="Sposta giù">↓</button>
+                        <button type="button" className={btnGhost} onClick={()=>deleteItem(item.id)}>Elimina</button>
                       </div>
                     )}
                   </div>
-
-                  {canEdit && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className={btnGhost}
-                        onClick={()=>moveExercise(item, 'up')}
-                        disabled={j===0 || busy}
-                        title="Sposta su"
-                      >↑</button>
-                      <button
-                        type="button"
-                        className={btnGhost}
-                        onClick={()=>moveExercise(item, 'down')}
-                        disabled={j===arr.length-1 || busy}
-                        title="Sposta giù"
-                      >↓</button>
-                      <button type="button" className={btnGhost} onClick={()=>deleteItem(item.id)}>Elimina</button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
 
               {(exByDay[d.id]?.length ?? 0) === 0 && (
                 <div className="text-sm opacity-70">Nessun esercizio in questo giorno.</div>
