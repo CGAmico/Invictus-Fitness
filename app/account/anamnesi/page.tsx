@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { createClient } from '@/lib/supabaseClient';
-import { useProfile } from '@/lib/useProfile';
-import { card, input, select, btnPrimary } from '@/components/ui';
+import { createClient } from '../../../lib/supabaseClient';
+import { useProfile } from '../../../lib/useProfile';
+import { card, input, btnPrimary, btnGhost, select } from '../../../components/ui';
 
 type AData = {
   goal?: string;                 // obiettivo

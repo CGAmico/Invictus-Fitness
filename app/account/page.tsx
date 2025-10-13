@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabaseClient';
-import { useProfile } from '@/lib/useProfile';
-import { card, input, select, btnPrimary } from '@/components/ui';
+import { createClient } from '../../lib/supabaseClient';
+import { useProfile } from '../../lib/useProfile';
+import { card, input, btnPrimary, btnGhost, select } from '../../components/ui';
 
 export default function AccountPage() {
   const supabase = createClient();
