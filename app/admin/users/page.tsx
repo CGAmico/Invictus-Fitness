@@ -6,7 +6,7 @@ import { useProfile } from '@/lib/useProfile';
 import { card, input, select, btnPrimary, btnGhost } from '@/components/ui';
 
 type Role = 'owner'|'trainer'|'member';
-type Profile = { id: string; full_name: string|null; email: string|null; role: Role };
+type Profile = { id: string; full_name: string|null; email: string|null; role: Role; is_deleted: boolean };
 
 export default function AdminUsersPage() {
   const supabase = createClient();
@@ -22,18 +22,40 @@ export default function AdminUsersPage() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<Role>('member');
-  // opzionale: anamnesi iniziale minimale (campo note)
   const [noteAnamnesi, setNoteAnamnesi] = useState('');
 
   const load = async () => {
     setMsg(null);
+
+    // Carica SOLO i profili non eliminati
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, full_name, email, role, is_deleted')
+      .eq('is_deleted', false)  //<-- mostra solo NON eliminati
       .order('full_name', { ascending: true });
+
     if (error) { setMsg(error.message); return; }
     setPeople((data ?? []) as Profile[]);
   };
+
+  const deleteUser = async (userId: string) => {
+  if (!confirm('Eliminare definitivamente questo utente?')) return;
+  setBusy(true); setMsg(null);
+  try {
+    const res = await fetch('/api/admin/delete-user', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || 'Errore eliminazione');
+    await load(); // <-- ricarica SOLO i non eliminati
+  } catch (e: any) {
+    setMsg(e.message);
+  } finally {
+    setBusy(false);
+  }
+};
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [isOwner]);
 
@@ -63,7 +85,7 @@ export default function AdminUsersPage() {
           full_name: fullName,
           role,
           anamnesis: noteAnamnesi ? { notes: noteAnamnesi } : null,
-          emailConfirm: true,  // subito attivo con password scelta qui
+          emailConfirm: true,
         }),
       });
       const json = await res.json();
@@ -79,11 +101,36 @@ export default function AdminUsersPage() {
     }
   };
 
+  // ⬇️ Nuovo: cancellazione definitiva
+  const hardDeleteUser = async (userId: string) => {
+    if (!confirm('Eliminare definitivamente questo utente? L’operazione è irreversibile.')) return;
+
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || 'Errore eliminazione utente');
+
+      // Ricarica la lista filtrata (sparisce subito)
+      await load();
+      setMsg('Utente eliminato definitivamente.');
+    } catch (err: any) {
+      setMsg(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className={card}>
         <h1 className="text-2xl font-bold">Utenti</h1>
         <p className="text-sm opacity-80">Crea nuovi iscritti, assegna ruoli e apri l’anamnesi.</p>
+        <div className="text-xs mt-2 opacity-70">ruolo corrente: {isOwner ? 'owner' : 'non-owner'}</div>
       </div>
 
       {msg && <div className={card + ' border border-red-500 text-red-300'}>{msg}</div>}
@@ -149,6 +196,14 @@ export default function AdminUsersPage() {
               </div>
               <div className="flex gap-2">
                 <a href={`/admin/anamnesi/${p.id}`} className={btnGhost}>Anamnesi</a>
+                <button
+                  className={btnGhost + ' text-red-300 border-red-500/50 hover:border-red-400'}
+                  onClick={() => deleteUser(p.id)}
+                  disabled={busy || !isOwner}
+                  title={isOwner ? 'Elimina definitivamente' : 'Solo gli owner possono eliminare'}
+                >
+                  Elimina 
+                </button>
               </div>
             </div>
           ))}
