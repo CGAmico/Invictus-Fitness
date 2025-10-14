@@ -3,9 +3,9 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClient } from '@/lib/supabaseClient';
+import { createClient } from '../../../lib/supabaseClient';
 import { routeForRole } from '@/lib/redirectAfterLogin';
-import { card } from '@/components/ui';
+import { card } from '../../../components/ui';
 
 function Inner() {
   const router = useRouter();

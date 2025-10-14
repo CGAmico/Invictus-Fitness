@@ -38,12 +38,11 @@ const nextConfig: NextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
 
-  // 👇 alias webpack per garantire che "@/..." funzioni anche in build
+ // 👉 Alias webpack per supportare `@/` ovunque (server & client, build inclusa)
   webpack: (config) => {
-    config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
-      '@': path.resolve(__dirname), // alias root del progetto
+      '@': path.resolve(__dirname), // `@` punta alla root del progetto
     };
     return config;
   },
