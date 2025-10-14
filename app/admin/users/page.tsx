@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { createClient } from '@/lib/supabaseClient';
-import { useProfile } from '@/lib/useProfile';
-import { card, input, select, btnPrimary, btnGhost } from '@/components/ui';
+import { createClient } from '../../../lib/supabaseClient';
+import { useProfile } from '../../../lib/useProfile';
+import { card, input, select, btnPrimary, btnGhost } from '../../../components/ui';
 
 type Role = 'owner'|'trainer'|'member';
 type Profile = { id: string; full_name: string|null; email: string|null; role: Role; is_deleted: boolean };

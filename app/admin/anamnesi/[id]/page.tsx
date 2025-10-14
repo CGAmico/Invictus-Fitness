@@ -2,9 +2,9 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabaseClient';
-import { useProfile } from '@/lib/useProfile';
-import { card, input, btnPrimary } from '@/components/ui';
+import { createClient } from '../../../../lib/supabaseClient';
+import { useProfile } from '../../../../lib/useProfile';
+import { card, input, btnPrimary, btnGhost, select } from '../../../../components/ui';
 
 type AData = {
   goal?: string;
