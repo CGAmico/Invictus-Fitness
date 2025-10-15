@@ -1,7 +1,14 @@
-// next.config.ts
-import type { NextConfig } from 'next';
+cat > next.config.mjs <<'EOF'
 import withPWA from 'next-pwa';
-import path from 'path'; // 👈 aggiungi questo
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
+  async redirects() {
+    return [{ source: '/', destination: '/login', permanent: false }];
+  },
+};
 
 const withPWAConfigured = withPWA({
   dest: 'public',
@@ -34,24 +41,9 @@ const withPWAConfigured = withPWA({
   ],
 });
 
-const nextConfig: NextConfig = {
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
-
- // 👉 Alias webpack per supportare `@/` ovunque (server & client, build inclusa)
-  webpack: (config) => {
-    config.resolve.alias = {
-      ...(config.resolve.alias || {}),
-      '@': path.resolve(__dirname), // `@` punta alla root del progetto
-    };
-    return config;
-  },
-
-  async redirects() {
-    return [
-      { source: '/', destination: '/login', permanent: false },
-    ];
-  },
-};
-
 export default withPWAConfigured(nextConfig);
+EOF
+
+git add next.config.mjs
+git commit -m "Switch to next.config.mjs and remove next.config.ts"
+git push origin main
