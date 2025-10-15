@@ -1,22 +1,16 @@
-cat > next.config.mjs <<'EOF'
+// next.config.mjs
 import withPWA from 'next-pwa';
 
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
-  async redirects() {
-    return [{ source: '/', destination: '/login', permanent: false }];
-  },
-};
+const isDev = process.env.NODE_ENV === 'development';
 
 const withPWAConfigured = withPWA({
   dest: 'public',
-  disable: process.env.NODE_ENV === 'development',
+  disable: isDev,          // disabilita PWA in dev
   register: true,
   skipWaiting: true,
   runtimeCaching: [
     {
+      // asset statici Next
       urlPattern: /\/_next\/static\/.*/i,
       handler: 'CacheFirst',
       options: {
@@ -25,6 +19,7 @@ const withPWAConfigured = withPWA({
       },
     },
     {
+      // immagini/font/icona
       urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico|woff2?)$/i,
       handler: 'CacheFirst',
       options: {
@@ -41,9 +36,14 @@ const withPWAConfigured = withPWA({
   ],
 });
 
-export default withPWAConfigured(nextConfig);
-EOF
+const nextConfig = {
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
+  async redirects() {
+    return [
+      { source: '/', destination: '/login', permanent: false }, // fix per Render
+    ];
+  },
+};
 
-git add next.config.mjs
-git commit -m "Switch to next.config.mjs and remove next.config.ts"
-git push origin main
+export default withPWAConfigured(nextConfig);
